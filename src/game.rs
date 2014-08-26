@@ -1,3 +1,4 @@
+use std::io;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -8,19 +9,19 @@ use rsfml;
 use rsfml::window::VideoMode;
 use rsfml::graphics::{RenderWindow, IntRect};
 use rsfml::graphics::rc::Sprite;
-use rsfml::system::vector2::Vector2f;
+use rsfml::system::vector2::{Vector2f, Vector2i};
 
 pub type TextureRc = Rc<RefCell<rsfml::graphics::Texture>>;
 
 pub trait GameState {
-    fn draw(&self, dt: f32, game: &mut Game);
+    fn draw(&mut self, dt: f32, game: &mut Game);
     fn update(&mut self, dt: f32);
     fn handle_input(&mut self, game: &mut Game);
 }
 
 impl GameState for Rc<RefCell<Box<GameState>>> {
-    fn draw(&self, dt: f32, game: &mut Game) {
-        self.borrow().draw(dt, game)
+    fn draw(&mut self, dt: f32, game: &mut Game) {
+        self.borrow_mut().draw(dt, game)
     }
 
     fn update(&mut self, dt: f32) {
@@ -35,7 +36,7 @@ impl GameState for Rc<RefCell<Box<GameState>>> {
 pub struct Game {
     states: Vec<Rc<RefCell<Box<GameState>>>>,
     textures: TextureManager,
-    tile_size: uint,
+    pub tile_size: uint,
     pub background: Sprite,
     pub window: RenderWindow,
     pub tile_atlas: HashMap<&'static str, Tile>
@@ -171,21 +172,21 @@ fn load_tiles(textures: &TextureManager, tile_size: uint) -> HashMap<&'static st
     ));
 
     tiles.insert("residential", Tile::new(
-        tile_size, 1,
+        tile_size, 2,
         textures.get_ref("residential").expect("residential texture not loaded"),
         Vec::from_elem(6, Animation::new_static()),
         TileType::residential(50, 6), 300
     ));
 
     tiles.insert("commercial", Tile::new(
-        tile_size, 1,
+        tile_size, 2,
         textures.get_ref("commercial").expect("commercial texture not loaded"),
         Vec::from_elem(6, Animation::new_static()),
         TileType::commercial(50, 6), 300
     ));
 
     tiles.insert("industrial", Tile::new(
-        tile_size, 1,
+        tile_size, 2,
         textures.get_ref("industrial").expect("industrial texture not loaded"),
         Vec::from_elem(6, Animation::new_static()),
         TileType::industrial(50, 6), 300
@@ -194,7 +195,7 @@ fn load_tiles(textures: &TextureManager, tile_size: uint) -> HashMap<&'static st
     tiles.insert("road", Tile::new(
         tile_size, 1,
         textures.get_ref("road").expect("road texture not loaded"),
-        Vec::from_elem(11, Animation::new(0, 3, 0.5)),
+        Vec::from_elem(11, Animation::new_static()),
         Road, 100
     ));
 
@@ -250,6 +251,7 @@ impl Animation {
     }
 }
 
+#[deriving(Clone)]
 pub struct AnimationHandler {
     animations: Vec<Animation>,
     time: f32,
@@ -310,6 +312,7 @@ impl AnimationHandler {
     }
 }
 
+#[deriving(Clone)]
 pub enum TileType {
     Void,
     Grass,
@@ -357,6 +360,20 @@ impl TileType {
             max_levels: max_levels
         }
     }
+
+    pub fn similar_to(&self, other: &TileType) -> bool {
+        match (self, other) {
+            (&Void, &Void) => true,
+            (&Grass, &Grass) => true,
+            (&Forest, &Forest) => true,
+            (&Water, &Water) => true,
+            (&Residential {..}, &Residential {..}) => true,
+            (&Commercial {..}, &Commercial {..}) => true,
+            (&Industrial {..}, &Industrial {..}) => true,
+            (&Road, &Road) => true,
+            _ => false
+        }
+    }
 }
 
 impl fmt::Show for TileType {
@@ -374,6 +391,7 @@ impl fmt::Show for TileType {
     }
 }
 
+#[deriving(Clone)]
 pub struct Tile {
     sprite: Sprite,
     tile_type: TileType,
@@ -427,5 +445,313 @@ impl Tile {
             },
             _ => {}
         }
+    }
+
+    pub fn set_population(&mut self, new_population: f32) {
+        match self.tile_type {
+            Residential {mut population, ..} |
+            Commercial {mut population, ..} |
+            Industrial {mut population, ..}
+            => population = new_population,
+            _ => {}
+        }
+    }
+}
+
+pub struct Map {
+    width: uint,
+    height: uint,
+    tiles: Vec<(Tile, uint)>,
+    tile_size: uint,
+    num_selected: uint,
+    num_regions: Vec<uint>
+}
+
+impl Map {
+    pub fn new_generated(tile_size: uint, tile_atlas: &HashMap<&'static str, Tile>) -> Map {
+        let width = 50;
+        let height = 50;
+
+        let mut tiles = Vec::new();
+
+        for _ in range(0u, width * height) {
+            let tile = match task_rng().gen_range(0u8, 8) {
+                0 | 1 => tile_atlas.find(&"grass").expect("grass tile was not loaded").clone(),
+                2 => tile_atlas.find(&"forest").expect("forest tile was not loaded").clone(),
+                3 => tile_atlas.find(&"water").expect("water tile was not loaded").clone(),
+                4 => tile_atlas.find(&"residential").expect("residential tile was not loaded").clone(),
+                5 => tile_atlas.find(&"commercial").expect("commercial tile was not loaded").clone(),
+                6 => tile_atlas.find(&"industrial").expect("industrial tile was not loaded").clone(),
+                7 => tile_atlas.find(&"road").expect("road tile was not loaded").clone(),
+                _ => unreachable!()
+            };
+
+            tiles.push((tile, 255));
+        }
+
+        Map {
+            width: width,
+            height: height,
+            tiles: tiles,
+            tile_size: tile_size,
+            num_selected: 0,
+            num_regions: vec![0]
+        }
+    }
+
+    pub fn load(&mut self, path: &Path, tile_atlas: &HashMap<&'static str, Tile>) -> io::IoResult<()> {
+        let mut file = try!(io::File::open(path));
+        self.width = try!(file.read_be_u32()) as uint;
+        self.height = try!(file.read_be_u32()) as uint;
+
+        let mut tiles = Vec::new();
+
+        for _ in range(0u, self.width * self.height) {
+            let mut tile = match try!(file.read_u8()) {
+                0 | 1 => tile_atlas.find(&"grass").unwrap().clone(),
+                2 => tile_atlas.find(&"forest").unwrap().clone(),
+                3 => tile_atlas.find(&"water").unwrap().clone(),
+                4 => {
+                    let mut tile = tile_atlas.find(&"residential").unwrap().clone();
+                    tile.set_population(try!(file.read_be_f32()));
+                    tile
+                },
+                5 => {
+                    let mut tile = tile_atlas.find(&"commercial").unwrap().clone();
+                    tile.set_population(try!(file.read_be_f32()));
+                    tile
+                },
+                6 => {
+                    let mut tile = tile_atlas.find(&"industrial").unwrap().clone();
+                    tile.set_population(try!(file.read_be_f32()));
+                    tile
+                },
+                7 => tile_atlas.find(&"road").unwrap().clone(),
+                n => return Err(io::IoError {
+                    kind: io::OtherIoError,
+                    desc: "invalid tile type in map file",
+                    detail: Some(format!("found type number {}", n))
+                })
+            };
+
+            tile.variant = try!(file.read_be_u32()) as uint;
+
+            let num_regions = try!(file.read_be_u32()) as uint;
+            let mut regions = Vec::new();
+            for _ in range(0u, num_regions) {
+                regions.push(try!(file.read_be_u32()) as uint);
+            }
+            tile.regions = regions;
+
+            tile.stored_goods = try!(file.read_be_f32());
+
+            tiles.push((tile, 255));
+        }
+
+        self.tiles = tiles;
+
+        Ok(())
+    }
+
+    pub fn save(&self, path: &Path) -> io::IoResult<()> {
+        let mut file = try!(io::File::create(path));
+
+        try!(file.write_be_u32(self.width as u32));
+        try!(file.write_be_u32(self.height as u32));
+
+        for &(ref tile, _resources) in self.tiles.iter() {
+            match tile.tile_type {
+                Void => try!(file.write_u8(0)),
+                Grass => try!(file.write_u8(1)),
+                Forest => try!(file.write_u8(2)),
+                Water => try!(file.write_u8(3)),
+                Residential {population, ..} => {
+                    try!(file.write_u8(4));
+                    try!(file.write_be_f32(population));
+                },
+                Commercial {population, ..} => {
+                    try!(file.write_u8(5));
+                    try!(file.write_be_f32(population));
+                },
+                Industrial {population, ..} => {
+                    try!(file.write_u8(6));
+                    try!(file.write_be_f32(population));
+                },
+                Road => try!(file.write_u8(7))
+            }
+
+            try!(file.write_be_u32(tile.variant as u32));
+            try!(file.write_be_u32(tile.regions.len() as u32));
+            for &region in tile.regions.iter() {
+                try!(file.write_be_u32(region as u32));
+            }
+
+            try!(file.write_be_f32(tile.stored_goods));
+        }
+
+        Ok(())
+    }
+
+    pub fn size(&self) -> (uint, uint) {
+        (self.width, self.height)
+    }
+
+    pub fn draw(&mut self, window: &mut RenderWindow, dt: f32) {
+        for y in range(0, self.height) {
+            for x in range(0, self.width) {
+                let pos = Vector2f::new(
+                    ((x - y) * self.tile_size + self.width * self.tile_size) as f32,
+                    ((x + y) * self.tile_size) as f32 * 0.5
+                );
+                let &(ref mut tile, _) = self.tiles.get_mut(y * self.width + x);
+                tile.sprite.set_position(&pos);
+                tile.draw(window, dt);
+            }
+        }
+    }
+
+    fn update_direction(&mut self, tile_type: TileType) {
+        for y in range(0, self.height) {
+            for x in range(0, self.width) {
+                {
+                    let (ref tile, _) = self.tiles[y * self.width + x];
+                    if !tile.tile_type.similar_to(&tile_type) {
+                        continue;
+                    }
+                }
+
+                let mut adjecent = [[false, ..3], ..3];
+
+                if x > 0 {
+                    if y > 0 {
+                        let (ref tile, _) = self.tiles[(y - 1) * self.width + x - 1];
+                        adjecent[0][0] = tile.tile_type.similar_to(&tile_type);
+                    }
+
+                    let (ref tile, _) = self.tiles[y* self.width + x - 1];
+                    adjecent[0][1] = tile.tile_type.similar_to(&tile_type);
+
+                    if y < self.height - 1 {
+                        let (ref tile, _) = self.tiles[(y + 1) * self.width + x - 1];
+                        adjecent[0][2] = tile.tile_type.similar_to(&tile_type);
+                    }
+                }
+
+                if y > 0 {
+                    let (ref tile, _) = self.tiles[(y - 1) * self.width + x];
+                    adjecent[1][0] = tile.tile_type.similar_to(&tile_type);
+                }
+
+                if y < self.height - 1 {
+                    let (ref tile, _) = self.tiles[(y + 1) * self.width + x];
+                    adjecent[1][2] = tile.tile_type.similar_to(&tile_type);
+                }
+
+                if x < self.width - 1 {
+                    if y > 0 {
+                        let (ref tile, _) = self.tiles[(y - 1) * self.width + x + 1];
+                        adjecent[2][0] = tile.tile_type.similar_to(&tile_type);
+                    }
+
+                    let (ref tile, _) = self.tiles[y* self.width + x + 1];
+                    adjecent[2][1] = tile.tile_type.similar_to(&tile_type);
+
+                    if y < self.height - 1 {
+                        let (ref tile, _) = self.tiles[(y + 1) * self.width + x + 1];
+                        adjecent[2][2] = tile.tile_type.similar_to(&tile_type);
+                    }
+                }
+
+                let &(ref mut tile, _) = self.tiles.get_mut(y * self.width + x);
+
+                if adjecent[1][0] && adjecent[1][2] && adjecent[0][1] && adjecent[2][1] {
+                    tile.variant = 2;
+                } else if adjecent[1][0] && adjecent[1][2] && adjecent[0][1] {
+                    tile.variant = 7;
+                } else if adjecent[1][0] && adjecent[1][2] && adjecent[2][1] {
+                    tile.variant = 8;
+                } else if adjecent[0][1] && adjecent[2][1] && adjecent[1][0] {
+                    tile.variant = 9;
+                } else if adjecent[0][1] && adjecent[2][1] && adjecent[1][2] {
+                    tile.variant = 10;
+                } else if adjecent[1][0] && adjecent[1][2] {
+                    tile.variant = 0;
+                } else if adjecent[0][1] && adjecent[2][1] {
+                    tile.variant = 1;
+                } else if adjecent[2][1] && adjecent[1][0] {
+                    tile.variant = 3;
+                } else if adjecent[0][1] && adjecent[1][2] {
+                    tile.variant = 4;
+                } else if adjecent[1][0] && adjecent[0][1] {
+                    tile.variant = 5;
+                } else if adjecent[2][1] && adjecent[1][2] {
+                    tile.variant = 6;
+                } else if adjecent[1][0] {
+                    tile.variant = 0;
+                } else if adjecent[1][2] {
+                    tile.variant = 0;
+                } else if adjecent[0][1] {
+                    tile.variant = 1;
+                } else if adjecent[2][1] {
+                    tile.variant = 1;
+                }
+            }
+        }
+    }
+
+    fn depth_first_search(&mut self, white_list: &Vec<TileType>, position: Vector2i, label: uint, region_type: uint) {
+        if position.x < 0 || position.x >= self.width as i32 || position.y < 0 || position.y >= self.height as i32 {
+            return
+        }
+
+        let found = {
+            let &(ref mut tile, _) = self.tiles.get_mut(position.y as uint * self.width + position.x as uint);
+            if tile.regions[region_type] != 0 {
+                return
+            }
+            if white_list.iter().find(|t| t.similar_to(&tile.tile_type)).is_some() {
+                *tile.regions.get_mut(region_type) = label;
+                true
+            } else {
+                false
+            }
+        };
+
+        
+        if found {
+            self.depth_first_search(white_list, position.add(&Vector2i::new(-1,  0)), label, region_type);
+            self.depth_first_search(white_list, position.add(&Vector2i::new( 0,  1)), label, region_type);
+            self.depth_first_search(white_list, position.add(&Vector2i::new( 1,  0)), label, region_type);
+            self.depth_first_search(white_list, position.add(&Vector2i::new( 0, -1)), label, region_type);
+        }
+    }
+
+    pub fn find_connected_regions(&mut self, white_list: Vec<TileType>, region_type: uint) {
+        let mut regions = 1;
+
+        for &(ref mut tile, _) in self.tiles.mut_iter() {
+            *tile.regions.get_mut(region_type) = 0;
+        }
+
+        for y in range(0, self.height) {
+            for x in range(0, self.width) {
+                let found = {
+                    let &(ref mut tile, _) = self.tiles.get_mut(y * self.width + x);
+
+                    if tile.regions[region_type] != 0 {
+                        continue;
+                    }
+
+                    white_list.iter().find(|t| t.similar_to(&tile.tile_type)).is_some()
+                };
+
+                if found {
+                    self.depth_first_search(&white_list, Vector2i::new(x as i32, y as i32), regions, region_type);
+                    regions += 1;
+                }
+            }
+        }
+
+        *self.num_regions.get_mut(region_type) = regions;
     }
 }
