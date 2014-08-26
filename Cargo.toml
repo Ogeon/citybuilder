@@ -1,0 +1,9 @@
+[package]
+
+name = "citybuilder"
+version = "0.0.1"
+authors = ["Erik Hedvall <hello@erikhedvall.nu>"]
+
+[dependencies.rust-sfml]
+
+git = "https://github.com/jeremyletang/rust-sfml"

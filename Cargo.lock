@@ -1,0 +1,12 @@
+[root]
+name = "citybuilder"
+version = "0.0.1"
+dependencies = [
+ "rust-sfml 0.9.0 (git+https://github.com/jeremyletang/rust-sfml#978fe95dae018698953b1d95f93b94ceb0d9422e)",
+]
+
+[[package]]
+name = "rust-sfml"
+version = "0.9.0"
+source = "git+https://github.com/jeremyletang/rust-sfml#978fe95dae018698953b1d95f93b94ceb0d9422e"
+
