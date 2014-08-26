@@ -1,3 +1,5 @@
+#![feature(struct_variant)]
+
 extern crate rsfml;
 
 mod game;
