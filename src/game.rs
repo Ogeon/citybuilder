@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use rsfml;
 use rsfml::window::VideoMode;
-use rsfml::graphics::RenderWindow;
+use rsfml::graphics::{RenderWindow, IntRect};
 
 pub trait GameState {
     fn draw(&self, dt: f32, game: &mut Game);
@@ -121,5 +121,77 @@ impl TextureManager {
 
     fn get_ref(&self, name: &'static str) -> Option<Rc<RefCell<rsfml::graphics::Texture>>> {
         self.textures.find(&name).map(|rc| rc.clone())
+    }
+}
+
+pub struct Animation {
+    pub start_frame: uint,
+    pub end_frame: uint,
+    pub duration: f32
+}
+
+impl Animation {
+    pub fn get_length(&self) -> uint {
+        self.end_frame - self.start_frame + 1
+    }
+}
+
+pub struct AnimationHandler {
+    animations: Vec<Animation>,
+    time: f32,
+    current_anim: uint,
+    pub bounds: IntRect,
+    pub frame_size: (uint, uint)
+}
+
+impl AnimationHandler {
+    pub fn new() -> AnimationHandler {
+        AnimationHandler::new_with_size((0, 0))
+    }
+
+    pub fn new_with_size(frame_size: (uint, uint)) -> AnimationHandler {
+        AnimationHandler {
+            animations: Vec::new(),
+            time: 0.0,
+            current_anim: 0,
+            bounds: IntRect::new(0, 0, 0, 0),
+            frame_size: frame_size
+        }
+    }
+
+    pub fn add_animation(&mut self, animation: Animation) {
+        self.animations.push(animation)
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        if self.current_anim >= self.animations.len() {
+            return
+        }
+
+        let duration = self.animations[self.current_anim].duration;
+
+        let frame = ((self.time + dt) / duration) as i32;
+        if frame > (self.time / duration) as i32 {
+            let frame = frame % self.animations[self.current_anim].get_length() as i32;
+            let (width, height) = self.frame_size;
+            let width = width as i32;
+            let height = height as i32;
+            self.bounds = IntRect::new(width * frame as i32, height * self.current_anim as i32, width, height);
+        }
+
+        self.time += dt;
+
+        if dt > duration * self.animations[self.current_anim].get_length() as f32 {
+            self.time = 0.0
+        }
+    }
+
+    pub fn change_animation(&mut self, new_animation: uint) {
+        if new_animation != self.current_anim && new_animation < self.animations.len() {
+            self.current_anim = new_animation;
+            let (width, height) = self.frame_size;
+            self.bounds = IntRect::new(0, (height * new_animation) as i32, width as i32, height as i32);
+            self.time = 0.0;
+        }
     }
 }
