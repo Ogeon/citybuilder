@@ -4,12 +4,32 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rand::{Rng, task_rng};
+use std::mem::swap;
+use std::cmp::{min, max};
 
 use rsfml;
 use rsfml::window::VideoMode;
-use rsfml::graphics::{RenderWindow, IntRect};
+use rsfml::graphics::{RenderWindow, IntRect, Color};
 use rsfml::graphics::rc::Sprite;
 use rsfml::system::vector2::{Vector2f, Vector2i};
+
+pub static RESIDENTIAL: TileType = Residential {
+    population: 0.0,
+    max_pop_per_level: 0,
+    max_levels: 0
+};
+
+pub static COMMERCIAL: TileType = Commercial {
+    population: 0.0,
+    max_pop_per_level: 0,
+    max_levels: 0
+};
+
+pub static INDUSTRIAL: TileType = Industrial {
+    population: 0.0,
+    max_pop_per_level: 0,
+    max_levels: 0
+};
 
 pub type TextureRc = Rc<RefCell<rsfml::graphics::Texture>>;
 
@@ -394,7 +414,7 @@ impl fmt::Show for TileType {
 #[deriving(Clone)]
 pub struct Tile {
     sprite: Sprite,
-    tile_type: TileType,
+    pub tile_type: TileType,
     variant: uint,
     regions: Vec<uint>,
     pub cost: uint,
@@ -458,10 +478,16 @@ impl Tile {
     }
 }
 
+pub enum Selection {
+    Deselected,
+    Selected,
+    Invalid
+}
+
 pub struct Map {
     width: uint,
     height: uint,
-    tiles: Vec<(Tile, uint)>,
+    tiles: Vec<(Tile, uint, Selection)>,
     tile_size: uint,
     num_selected: uint,
     num_regions: Vec<uint>
@@ -486,7 +512,7 @@ impl Map {
                 _ => unreachable!()
             };
 
-            tiles.push((tile, 255));
+            tiles.push((tile, 255, Deselected));
         }
 
         Map {
@@ -545,7 +571,7 @@ impl Map {
 
             tile.stored_goods = try!(file.read_be_f32());
 
-            tiles.push((tile, 255));
+            tiles.push((tile, 255, Deselected));
         }
 
         self.tiles = tiles;
@@ -559,7 +585,7 @@ impl Map {
         try!(file.write_be_u32(self.width as u32));
         try!(file.write_be_u32(self.height as u32));
 
-        for &(ref tile, _resources) in self.tiles.iter() {
+        for &(ref tile, _resources, _) in self.tiles.iter() {
             match tile.tile_type {
                 Void => try!(file.write_u8(0)),
                 Grass => try!(file.write_u8(1)),
@@ -603,7 +629,13 @@ impl Map {
                     ((x - y) * self.tile_size + self.width * self.tile_size) as f32,
                     ((x + y) * self.tile_size) as f32 * 0.5
                 );
-                let &(ref mut tile, _) = self.tiles.get_mut(y * self.width + x);
+                let &(ref mut tile, _, ref selection) = self.tiles.get_mut(y * self.width + x);
+
+                match selection {
+                    &Selected | &Invalid => tile.sprite.set_color(&Color::new_RGB(0x7d, 0x7d, 0x7d)),
+                    _ => tile.sprite.set_color(&Color::new_RGB(0xff, 0xff, 0xff))
+                }
+
                 tile.sprite.set_position(&pos);
                 tile.draw(window, dt);
             }
@@ -614,7 +646,7 @@ impl Map {
         for y in range(0, self.height) {
             for x in range(0, self.width) {
                 {
-                    let (ref tile, _) = self.tiles[y * self.width + x];
+                    let (ref tile, _, _) = self.tiles[y * self.width + x];
                     if !tile.tile_type.similar_to(&tile_type) {
                         continue;
                     }
@@ -624,45 +656,45 @@ impl Map {
 
                 if x > 0 {
                     if y > 0 {
-                        let (ref tile, _) = self.tiles[(y - 1) * self.width + x - 1];
+                        let (ref tile, _, _) = self.tiles[(y - 1) * self.width + x - 1];
                         adjecent[0][0] = tile.tile_type.similar_to(&tile_type);
                     }
 
-                    let (ref tile, _) = self.tiles[y* self.width + x - 1];
+                    let (ref tile, _, _) = self.tiles[y* self.width + x - 1];
                     adjecent[0][1] = tile.tile_type.similar_to(&tile_type);
 
                     if y < self.height - 1 {
-                        let (ref tile, _) = self.tiles[(y + 1) * self.width + x - 1];
+                        let (ref tile, _, _) = self.tiles[(y + 1) * self.width + x - 1];
                         adjecent[0][2] = tile.tile_type.similar_to(&tile_type);
                     }
                 }
 
                 if y > 0 {
-                    let (ref tile, _) = self.tiles[(y - 1) * self.width + x];
+                    let (ref tile, _, _) = self.tiles[(y - 1) * self.width + x];
                     adjecent[1][0] = tile.tile_type.similar_to(&tile_type);
                 }
 
                 if y < self.height - 1 {
-                    let (ref tile, _) = self.tiles[(y + 1) * self.width + x];
+                    let (ref tile, _, _) = self.tiles[(y + 1) * self.width + x];
                     adjecent[1][2] = tile.tile_type.similar_to(&tile_type);
                 }
 
                 if x < self.width - 1 {
                     if y > 0 {
-                        let (ref tile, _) = self.tiles[(y - 1) * self.width + x + 1];
+                        let (ref tile, _, _) = self.tiles[(y - 1) * self.width + x + 1];
                         adjecent[2][0] = tile.tile_type.similar_to(&tile_type);
                     }
 
-                    let (ref tile, _) = self.tiles[y* self.width + x + 1];
+                    let (ref tile, _, _) = self.tiles[y* self.width + x + 1];
                     adjecent[2][1] = tile.tile_type.similar_to(&tile_type);
 
                     if y < self.height - 1 {
-                        let (ref tile, _) = self.tiles[(y + 1) * self.width + x + 1];
+                        let (ref tile, _, _) = self.tiles[(y + 1) * self.width + x + 1];
                         adjecent[2][2] = tile.tile_type.similar_to(&tile_type);
                     }
                 }
 
-                let &(ref mut tile, _) = self.tiles.get_mut(y * self.width + x);
+                let &(ref mut tile, _, _) = self.tiles.get_mut(y * self.width + x);
 
                 if adjecent[1][0] && adjecent[1][2] && adjecent[0][1] && adjecent[2][1] {
                     tile.variant = 2;
@@ -699,17 +731,17 @@ impl Map {
         }
     }
 
-    fn depth_first_search(&mut self, white_list: &Vec<TileType>, position: Vector2i, label: uint, region_type: uint) {
+    fn depth_first_search(&mut self, whitelist: &Vec<TileType>, position: Vector2i, label: uint, region_type: uint) {
         if position.x < 0 || position.x >= self.width as i32 || position.y < 0 || position.y >= self.height as i32 {
             return
         }
 
         let found = {
-            let &(ref mut tile, _) = self.tiles.get_mut(position.y as uint * self.width + position.x as uint);
+            let &(ref mut tile, _, _) = self.tiles.get_mut(position.y as uint * self.width + position.x as uint);
             if tile.regions[region_type] != 0 {
                 return
             }
-            if white_list.iter().find(|t| t.similar_to(&tile.tile_type)).is_some() {
+            if whitelist.iter().find(|t| t.similar_to(&tile.tile_type)).is_some() {
                 *tile.regions.get_mut(region_type) = label;
                 true
             } else {
@@ -719,39 +751,78 @@ impl Map {
 
         
         if found {
-            self.depth_first_search(white_list, position.add(&Vector2i::new(-1,  0)), label, region_type);
-            self.depth_first_search(white_list, position.add(&Vector2i::new( 0,  1)), label, region_type);
-            self.depth_first_search(white_list, position.add(&Vector2i::new( 1,  0)), label, region_type);
-            self.depth_first_search(white_list, position.add(&Vector2i::new( 0, -1)), label, region_type);
+            self.depth_first_search(whitelist, position.add(&Vector2i::new(-1,  0)), label, region_type);
+            self.depth_first_search(whitelist, position.add(&Vector2i::new( 0,  1)), label, region_type);
+            self.depth_first_search(whitelist, position.add(&Vector2i::new( 1,  0)), label, region_type);
+            self.depth_first_search(whitelist, position.add(&Vector2i::new( 0, -1)), label, region_type);
         }
     }
 
-    pub fn find_connected_regions(&mut self, white_list: Vec<TileType>, region_type: uint) {
+    pub fn find_connected_regions(&mut self, whitelist: Vec<TileType>, region_type: uint) {
         let mut regions = 1;
 
-        for &(ref mut tile, _) in self.tiles.mut_iter() {
+        for &(ref mut tile, _, _) in self.tiles.mut_iter() {
             *tile.regions.get_mut(region_type) = 0;
         }
 
         for y in range(0, self.height) {
             for x in range(0, self.width) {
                 let found = {
-                    let &(ref mut tile, _) = self.tiles.get_mut(y * self.width + x);
+                    let &(ref tile, _, _) = self.tiles.get_mut(y * self.width + x);
 
                     if tile.regions[region_type] != 0 {
                         continue;
                     }
 
-                    white_list.iter().find(|t| t.similar_to(&tile.tile_type)).is_some()
+                    whitelist.iter().find(|t| t.similar_to(&tile.tile_type)).is_some()
                 };
 
                 if found {
-                    self.depth_first_search(&white_list, Vector2i::new(x as i32, y as i32), regions, region_type);
+                    self.depth_first_search(&whitelist, Vector2i::new(x as i32, y as i32), regions, region_type);
                     regions += 1;
                 }
             }
         }
 
         *self.num_regions.get_mut(region_type) = regions;
+    }
+
+    pub fn clear_selected(&mut self) {
+        for &(_, _, ref mut selection) in self.tiles.mut_iter() {
+            *selection = Deselected;
+        }
+
+        self.num_selected = 0;
+    }
+
+    pub fn select(&mut self, start: Vector2i, end: Vector2i, blacklist: Vec<TileType>) {
+        let mut start = start;
+        let mut end = end;
+
+        if end.x < start.x {
+            swap(&mut start.x, &mut end.x)
+        }
+
+        if end.y < start.y {
+            swap(&mut start.y, &mut end.y)
+        }
+
+        start.x = min(max(start.x, 0), self.width as i32 - 1);
+        start.y = min(max(start.y, 0), self.height as i32 - 1);
+        end.x = min(max(end.x, 0), self.width as i32 - 1);
+        end.y = min(max(end.y, 0), self.height as i32 - 1);
+
+
+        for y in range(start.y as uint, end.y as uint + 1) {
+            for x in range(start.x as uint, end.x as uint + 1) {
+                let &(ref tile, _, ref mut selection) = self.tiles.get_mut(y * self.width + x);
+                if blacklist.iter().find(|t| t.similar_to(&tile.tile_type)).is_some() {
+                    *selection = Invalid;
+                } else {
+                    *selection = Selected;
+                    self.num_selected += 1;
+                }
+            }
+        }
     }
 }
