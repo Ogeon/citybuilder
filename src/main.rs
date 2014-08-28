@@ -5,6 +5,7 @@ extern crate rsfml;
 mod game;
 mod start_state;
 mod edit_state;
+mod gui;
 
 //For SFML on OS X
 #[cfg(target_os="macos")]

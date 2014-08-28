@@ -9,9 +9,11 @@ use std::cmp::{min, max};
 
 use rsfml;
 use rsfml::window::VideoMode;
-use rsfml::graphics::{RenderWindow, IntRect, Color};
+use rsfml::graphics::{RenderWindow, IntRect, Color, Font};
 use rsfml::graphics::rc::Sprite;
 use rsfml::system::vector2::{Vector2f, Vector2i};
+
+use gui;
 
 pub static RESIDENTIAL: TileType = Residential {
     population: 0.0,
@@ -59,7 +61,9 @@ pub struct Game {
     pub tile_size: uint,
     pub background: Sprite,
     pub window: RenderWindow,
-    pub tile_atlas: HashMap<&'static str, Tile>
+    pub tile_atlas: HashMap<&'static str, Tile>,
+    pub fonts: HashMap<&'static str, Rc<RefCell<Font>>>,
+    pub stylesheets: HashMap<&'static str, gui::GuiStyle>
 }
 
 impl Game {
@@ -77,6 +81,7 @@ impl Game {
             let texture_manager = load_textures();
             let background = texture_manager.get_ref("background").expect("background texture was not loaded");
             let tiles = load_tiles(&texture_manager, tile_size);
+            let fonts = load_fonts();
             window.set_framerate_limit(60);
 
             Game {
@@ -85,7 +90,9 @@ impl Game {
                 tile_size: tile_size,
                 background: Sprite::new_with_texture(background).expect("could not create background sprite"),
                 window: window,
-                tile_atlas: tiles
+                tile_atlas: tiles,
+                stylesheets: make_stylesheets(&fonts),
+                fonts: fonts
             }
         })
     }
@@ -220,6 +227,43 @@ fn load_tiles(textures: &TextureManager, tile_size: uint) -> HashMap<&'static st
     ));
 
     tiles
+}
+
+pub fn load_fonts() -> HashMap<&'static str, Rc<RefCell<Font>>> {
+    let mut fonts = HashMap::new();
+
+    fonts.insert("main_font", Rc::new(RefCell::new(Font::new_from_file("media/font.ttf").expect("could not load main font"))));
+
+    fonts
+}
+
+pub fn make_stylesheets(fonts: &HashMap<&'static str, Rc<RefCell<Font>>>) -> HashMap<&'static str, gui::GuiStyle> {
+    let mut stylesheets = HashMap::new();
+    let font = fonts.find(&"main_font").expect("main font not loaded").clone();
+
+    stylesheets.insert("button", gui::GuiStyle {
+        font: font.clone(),
+        border_size: 1.0,
+        body_color: Color::new_RGB(0xc6, 0xc6, 0xc6),
+        border_color: Color::new_RGB(0x94, 0x94, 0x94),
+        text_color: Color::new_RGB(0x00, 0x00, 0x00),
+        body_highlight_color: Color::new_RGB(0x61, 0x61, 0x61),
+        border_highlight_color: Color::new_RGB(0x94, 0x94, 0x94),
+        text_highlight_color: Color::new_RGB(0x00, 0x00, 0x00)
+    });
+
+    stylesheets.insert("text", gui::GuiStyle {
+        font: font,
+        border_size: 0.0,
+        body_color: Color::new_RGBA(0x00, 0x00, 0x00, 0x00),
+        border_color: Color::new_RGB(0x00, 0x00, 0x00),
+        text_color: Color::new_RGB(0xff, 0xff, 0xff),
+        body_highlight_color: Color::new_RGBA(0x00, 0x00, 0x00, 0x00),
+        border_highlight_color: Color::new_RGB(0x00, 0x00, 0x00),
+        text_highlight_color: Color::new_RGB(0xff, 0x00, 0x00)
+    });
+
+    stylesheets
 }
 
 pub struct TextureManager {
