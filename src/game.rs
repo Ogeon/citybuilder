@@ -4,8 +4,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rand::{Rng, task_rng};
-use std::mem::swap;
+use std::mem::{swap, transmute};
 use std::cmp::{min, max};
+use std::iter;
+use std::iter::FilterMap;
+use std::slice::MutItems;
 
 use rsfml;
 use rsfml::window::VideoMode;
@@ -30,7 +33,9 @@ pub static COMMERCIAL: TileType = Commercial {
 pub static INDUSTRIAL: TileType = Industrial {
     population: 0.0,
     max_pop_per_level: 0,
-    max_levels: 0
+    max_levels: 0,
+    production: 0,
+    stored_goods: 0
 };
 
 pub type TextureRc = Rc<RefCell<rsfml::graphics::Texture>>;
@@ -208,15 +213,15 @@ fn load_tiles(textures: &TextureManager, tile_size: uint) -> HashMap<&'static st
     tiles.insert("commercial", Tile::new(
         tile_size, 2,
         textures.get_ref("commercial").expect("commercial texture not loaded"),
-        Vec::from_elem(6, Animation::new_static()),
-        TileType::commercial(50, 6), 300
+        Vec::from_elem(4, Animation::new_static()),
+        TileType::commercial(50, 4), 300
     ));
 
     tiles.insert("industrial", Tile::new(
         tile_size, 2,
         textures.get_ref("industrial").expect("industrial texture not loaded"),
-        Vec::from_elem(6, Animation::new_static()),
-        TileType::industrial(50, 6), 300
+        Vec::from_elem(4, Animation::new_static()),
+        TileType::industrial(50, 4), 300
     ));
 
     tiles.insert("road", Tile::new(
@@ -334,7 +339,7 @@ impl AnimationHandler {
             animations: Vec::new(),
             time: 0.0,
             current_anim: 0,
-            bounds: IntRect::new(0, 0, 0, 0),
+            bounds: IntRect::new(0, 0, width as i32, height as i32),
             frame_size: (width, height)
         }
     }
@@ -383,18 +388,20 @@ pub enum TileType {
     Forest,
     Water,
     Residential {
-        population: f32,
-        max_pop_per_level: uint,
+        pub population: f64,
+        pub max_pop_per_level: uint,
         max_levels: uint
     },
     Commercial {
-        population: f32,
-        max_pop_per_level: uint,
+        pub population: f64,
+        pub max_pop_per_level: uint,
         max_levels: uint
     },
     Industrial {
-        population: f32,
-        max_pop_per_level: uint,
+        pub population: f64,
+        pub max_pop_per_level: uint,
+        pub production: u32,
+        pub stored_goods: u32,
         max_levels: uint
     },
     Road
@@ -421,7 +428,9 @@ impl TileType {
         Industrial {
             population: 0.0,
             max_pop_per_level: max_pop_per_level,
-            max_levels: max_levels
+            max_levels: max_levels,
+            production: 0,
+            stored_goods: 0
         }
     }
 
@@ -459,11 +468,9 @@ impl fmt::Show for TileType {
 pub struct Tile {
     sprite: Sprite,
     pub tile_type: TileType,
-    variant: uint,
-    regions: Vec<uint>,
+    pub variant: uint,
+    pub regions: Vec<uint>,
     pub cost: uint,
-    production: f32,
-    stored_goods: f32,
     animation_handler: AnimationHandler
 }
 
@@ -484,8 +491,6 @@ impl Tile {
             variant: 0,
             regions: vec![0],
             cost: cost,
-            production: 0.0,
-            stored_goods: 0.0,
             animation_handler: animation_handler
         }
     }
@@ -499,9 +504,9 @@ impl Tile {
 
     pub fn update(&mut self) {
         match self.tile_type {
-            Residential {mut population, max_pop_per_level, max_levels} |
-            Commercial {mut population, max_pop_per_level, max_levels} |
-            Industrial {mut population, max_pop_per_level, max_levels}
+            Residential {population, max_pop_per_level, max_levels} |
+            Commercial {population, max_pop_per_level, max_levels} |
+            Industrial {population, max_pop_per_level, max_levels, ..}
             => if population as uint == max_pop_per_level * (self.variant + 1) && self.variant < max_levels {
                 if (0.01f32 / (self.variant + 1) as f32) > task_rng().gen() {
                     self.variant += 1;
@@ -511,12 +516,26 @@ impl Tile {
         }
     }
 
-    pub fn set_population(&mut self, new_population: f32) {
+    pub fn set_population(&mut self, new_population: f64) {
         match self.tile_type {
-            Residential {mut population, ..} |
-            Commercial {mut population, ..} |
-            Industrial {mut population, ..}
-            => population = new_population,
+            Residential {ref mut population, ..} |
+            Commercial {ref mut population, ..} |
+            Industrial {ref mut population, ..}
+            => *population = new_population,
+            _ => {}
+        }
+    }
+
+    pub fn set_production(&mut self, new_production: u32) {
+        match self.tile_type {
+            Industrial {ref mut production, ..} => *production = new_production,
+            _ => {}
+        }
+    }
+
+    pub fn set_stored_goods(&mut self, new_stored_goods: u32) {
+        match self.tile_type {
+            Industrial {ref mut stored_goods, ..} => *stored_goods = new_stored_goods,
             _ => {}
         }
     }
@@ -533,7 +552,7 @@ pub struct Map {
     height: uint,
     tiles: Vec<(Tile, uint, Selection)>,
     tile_size: uint,
-    num_selected: uint,
+    pub num_selected: uint,
     num_regions: Vec<uint>
 }
 
@@ -545,15 +564,12 @@ impl Map {
         let mut tiles = Vec::new();
 
         for _ in range(0u, width * height) {
-            let tile = match task_rng().gen_range(0u8, 8) {
-                0 | 1 => tile_atlas.find(&"grass").expect("grass tile was not loaded").clone(),
-                2 => tile_atlas.find(&"forest").expect("forest tile was not loaded").clone(),
-                3 => tile_atlas.find(&"water").expect("water tile was not loaded").clone(),
-                4 => tile_atlas.find(&"residential").expect("residential tile was not loaded").clone(),
-                5 => tile_atlas.find(&"commercial").expect("commercial tile was not loaded").clone(),
-                6 => tile_atlas.find(&"industrial").expect("industrial tile was not loaded").clone(),
-                7 => tile_atlas.find(&"road").expect("road tile was not loaded").clone(),
-                _ => unreachable!()
+            let tile = if 0.2f32 > task_rng().gen() {
+                tile_atlas.find(&"forest").expect("forest tile was not loaded").clone()
+            } else if 0.02f32 > task_rng().gen() {
+                tile_atlas.find(&"water").expect("water tile was not loaded").clone()
+            } else {
+                tile_atlas.find(&"grass").expect("grass tile was not loaded").clone()
             };
 
             tiles.push((tile, 255, Deselected));
@@ -583,17 +599,19 @@ impl Map {
                 3 => tile_atlas.find(&"water").unwrap().clone(),
                 4 => {
                     let mut tile = tile_atlas.find(&"residential").unwrap().clone();
-                    tile.set_population(try!(file.read_be_f32()));
+                    tile.set_population(try!(file.read_be_f64()));
                     tile
                 },
                 5 => {
                     let mut tile = tile_atlas.find(&"commercial").unwrap().clone();
-                    tile.set_population(try!(file.read_be_f32()));
+                    tile.set_population(try!(file.read_be_f64()));
                     tile
                 },
                 6 => {
                     let mut tile = tile_atlas.find(&"industrial").unwrap().clone();
-                    tile.set_population(try!(file.read_be_f32()));
+                    tile.set_population(try!(file.read_be_f64()));
+                    tile.set_production(try!(file.read_be_u32()));
+                    tile.set_stored_goods(try!(file.read_be_u32()));
                     tile
                 },
                 7 => tile_atlas.find(&"road").unwrap().clone(),
@@ -612,8 +630,6 @@ impl Map {
                 regions.push(try!(file.read_be_u32()) as uint);
             }
             tile.regions = regions;
-
-            tile.stored_goods = try!(file.read_be_f32());
 
             tiles.push((tile, 255, Deselected));
         }
@@ -637,15 +653,17 @@ impl Map {
                 Water => try!(file.write_u8(3)),
                 Residential {population, ..} => {
                     try!(file.write_u8(4));
-                    try!(file.write_be_f32(population));
+                    try!(file.write_be_f64(population));
                 },
                 Commercial {population, ..} => {
                     try!(file.write_u8(5));
-                    try!(file.write_be_f32(population));
+                    try!(file.write_be_f64(population));
                 },
-                Industrial {population, ..} => {
+                Industrial {population, production, stored_goods, ..} => {
                     try!(file.write_u8(6));
-                    try!(file.write_be_f32(population));
+                    try!(file.write_be_f64(population));
+                    try!(file.write_be_u32(production));
+                    try!(file.write_be_u32(stored_goods));
                 },
                 Road => try!(file.write_u8(7))
             }
@@ -655,8 +673,6 @@ impl Map {
             for &region in tile.regions.iter() {
                 try!(file.write_be_u32(region as u32));
             }
-
-            try!(file.write_be_f32(tile.stored_goods));
         }
 
         Ok(())
@@ -686,7 +702,7 @@ impl Map {
         }
     }
 
-    fn update_direction(&mut self, tile_type: TileType) {
+    pub fn update_direction(&mut self, tile_type: TileType) {
         for y in range(0, self.height) {
             for x in range(0, self.width) {
                 {
@@ -705,32 +721,32 @@ impl Map {
                     }
 
                     let (ref tile, _, _) = self.tiles[y* self.width + x - 1];
-                    adjecent[0][1] = tile.tile_type.similar_to(&tile_type);
+                    adjecent[1][0] = tile.tile_type.similar_to(&tile_type);
 
                     if y < self.height - 1 {
                         let (ref tile, _, _) = self.tiles[(y + 1) * self.width + x - 1];
-                        adjecent[0][2] = tile.tile_type.similar_to(&tile_type);
+                        adjecent[2][0] = tile.tile_type.similar_to(&tile_type);
                     }
                 }
 
                 if y > 0 {
                     let (ref tile, _, _) = self.tiles[(y - 1) * self.width + x];
-                    adjecent[1][0] = tile.tile_type.similar_to(&tile_type);
+                    adjecent[0][1] = tile.tile_type.similar_to(&tile_type);
                 }
 
                 if y < self.height - 1 {
                     let (ref tile, _, _) = self.tiles[(y + 1) * self.width + x];
-                    adjecent[1][2] = tile.tile_type.similar_to(&tile_type);
+                    adjecent[2][1] = tile.tile_type.similar_to(&tile_type);
                 }
 
                 if x < self.width - 1 {
                     if y > 0 {
                         let (ref tile, _, _) = self.tiles[(y - 1) * self.width + x + 1];
-                        adjecent[2][0] = tile.tile_type.similar_to(&tile_type);
+                        adjecent[0][2] = tile.tile_type.similar_to(&tile_type);
                     }
 
                     let (ref tile, _, _) = self.tiles[y* self.width + x + 1];
-                    adjecent[2][1] = tile.tile_type.similar_to(&tile_type);
+                    adjecent[1][2] = tile.tile_type.similar_to(&tile_type);
 
                     if y < self.height - 1 {
                         let (ref tile, _, _) = self.tiles[(y + 1) * self.width + x + 1];
@@ -839,6 +855,14 @@ impl Map {
         self.num_selected = 0;
     }
 
+    pub fn tile(&mut self, index: uint) -> &mut (Tile, uint, Selection) {
+        self.tiles.get_mut(index)
+    }
+
+    pub fn tiles(&mut self) -> MutItems<(Tile, uint, Selection)> {
+        self.tiles.mut_iter()
+    }
+
     pub fn select(&mut self, start: Vector2i, end: Vector2i, blacklist: Vec<TileType>) {
         let mut start = start;
         let mut end = end;
@@ -867,6 +891,54 @@ impl Map {
                     self.num_selected += 1;
                 }
             }
+        }
+    }
+
+    pub fn selected(&mut self) -> FilterMap<&mut (Tile, uint, Selection), (&mut Tile, &mut uint), MutItems<(Tile, uint, Selection)>> {
+        self.tiles.mut_iter().filter_map(|&(ref mut tile, ref mut resources, selection)| match selection {
+            Selected => Some((tile, resources)),
+            _ => None
+        })
+    }
+
+    pub fn shuffled(&mut self) -> ShuffledItems<(Tile, uint, Selection)> {
+        ShuffledItems::new(&mut self.tiles)
+    }
+}
+
+struct ShuffledItems<'a, T> {
+    items: &'a mut Vec<T>,
+    indices: Vec<uint>,
+    counter: uint
+}
+
+impl<'a, T> ShuffledItems<'a, T> {
+    pub fn new(items: &'a mut Vec<T>) -> ShuffledItems<'a, T> {
+        let mut indices: Vec<uint> = range(0, items.len()).collect();
+        task_rng().shuffle(indices.as_mut_slice());
+        ShuffledItems {
+            items: items,
+            indices: indices,
+            counter: 0
+        }
+    }
+
+    pub fn into_indices(self) -> Vec<uint> {
+        self.indices
+    }
+}
+
+impl<'a, T> iter::Iterator<&'a mut T> for ShuffledItems<'a, T> {
+    fn next(&mut self) -> Option<&'a mut T> {
+        if self.counter < self.items.len() {
+            let index = self.indices[self.counter];
+            self.counter += 1;
+            unsafe {
+                //less nice...
+                Some(transmute(self.items.get_mut(index)))
+            }
+        } else {
+            None
         }
     }
 }

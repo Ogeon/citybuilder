@@ -6,6 +6,7 @@ mod game;
 mod start_state;
 mod edit_state;
 mod gui;
+mod city;
 
 //For SFML on OS X
 #[cfg(target_os="macos")]
