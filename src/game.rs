@@ -46,7 +46,7 @@ pub trait GameState {
     fn handle_input(&mut self, game: &mut Game);
 }
 
-impl GameState for Rc<RefCell<Box<GameState>>> {
+impl<'a> GameState for Rc<RefCell<Box<GameState + 'a>>> {
     fn draw(&mut self, dt: f32, game: &mut Game) {
         self.borrow_mut().draw(dt, game)
     }
@@ -60,8 +60,8 @@ impl GameState for Rc<RefCell<Box<GameState>>> {
     }
 }
 
-pub struct Game {
-    states: Vec<Rc<RefCell<Box<GameState>>>>,
+pub struct Game<'a> {
+    states: Vec<Rc<RefCell<Box<GameState + 'a>>>>,
     textures: TextureManager,
     pub tile_size: uint,
     pub background: Sprite,
@@ -71,8 +71,8 @@ pub struct Game {
     pub stylesheets: HashMap<&'static str, gui::GuiStyle>
 }
 
-impl Game {
-    pub fn new() -> Option<Game> {
+impl<'a> Game<'a> {
+    pub fn new() -> Option<Game<'a>> {
         let maybe_window = RenderWindow::new(
             VideoMode::new_init(800, 600, 32),
             "Super Mega City Builder",
@@ -102,7 +102,7 @@ impl Game {
         })
     }
 
-    pub fn push_state(&mut self, state: Box<GameState>) {
+    pub fn push_state(&mut self, state: Box<GameState + 'a>) {
         self.states.push(Rc::new(RefCell::new(state)));
     }
 
@@ -110,12 +110,12 @@ impl Game {
         self.states.pop();
     }
 
-    pub fn change_state(&mut self, state: Box<GameState>) {
+    pub fn change_state(&mut self, state: Box<GameState + 'a>) {
         self.pop_state();
         self.push_state(state);
     }
 
-    pub fn peek_state(&self) -> Option<Rc<RefCell<Box<GameState>>>> {
+    pub fn peek_state(&self) -> Option<Rc<RefCell<Box<GameState + 'a>>>> {
         self.states.last().map(|state| state.clone())
     }
 
@@ -906,13 +906,13 @@ impl Map {
     }
 }
 
-struct ShuffledItems<'a, T> {
+struct ShuffledItems<'a, T: 'a> {
     items: &'a mut Vec<T>,
     indices: Vec<uint>,
     counter: uint
 }
 
-impl<'a, T> ShuffledItems<'a, T> {
+impl<'a, T: 'a> ShuffledItems<'a, T> {
     pub fn new(items: &'a mut Vec<T>) -> ShuffledItems<'a, T> {
         let mut indices: Vec<uint> = range(0, items.len()).collect();
         task_rng().shuffle(indices.as_mut_slice());
@@ -928,7 +928,7 @@ impl<'a, T> ShuffledItems<'a, T> {
     }
 }
 
-impl<'a, T> iter::Iterator<&'a mut T> for ShuffledItems<'a, T> {
+impl<'a, T: 'a> iter::Iterator<&'a mut T> for ShuffledItems<'a, T> {
     fn next(&mut self) -> Option<&'a mut T> {
         if self.counter < self.items.len() {
             let index = self.indices[self.counter];
