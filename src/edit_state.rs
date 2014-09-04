@@ -15,6 +15,7 @@ use rsfml::window::mouse;
 use rsfml::system::vector2::{ToVec, Vector2f, Vector2i};
 
 use game;
+use tile;
 use city;
 use gui;
 
@@ -30,7 +31,7 @@ pub struct EditState<'s> {
     city: city::City,
     action_state: ActionState,
     zoom_level: f32,
-    current_tile: game::Tile,
+    current_tile: tile::Tile,
 
     right_click_menu: gui::Gui<'s>,
     selection_cost_text: gui::Gui<'s>,
@@ -176,18 +177,18 @@ impl<'s> game::GameState for EditState<'s> {
                         selection_end.y = (game_pos.y / game.tile_size as f32 - game_pos.x / (2.0 * game.tile_size as f32) + width as f32 * 0.5 + 0.5) as i32;
 
                         self.city.map.clear_selected();
-                        if self.current_tile.tile_type.similar_to(&game::Grass) {
-                            self.city.map.select(selection_start.clone(), selection_end.clone(), vec![game::Water]);
+                        if self.current_tile.tile_type.similar_to(&tile::Grass) {
+                            self.city.map.select(selection_start.clone(), selection_end.clone(), vec![tile::Water]);
                         } else {
                             self.city.map.select(selection_start.clone(), selection_end.clone(),
                                 vec![
                                     self.current_tile.tile_type.clone(),
-                                    game::Water,
-                                    game::Forest,
-                                    game::Road,
-                                    game::RESIDENTIAL,
-                                    game::COMMERCIAL,
-                                    game::INDUSTRIAL
+                                    tile::Water,
+                                    tile::Forest,
+                                    tile::Road,
+                                    tile::RESIDENTIAL,
+                                    tile::COMMERCIAL,
+                                    tile::INDUSTRIAL
                                 ]
                             );
                         }

@@ -1,4 +1,5 @@
 use game;
+use tile;
 use std::rand::{Rng, task_rng};
 
 pub struct City {
@@ -56,11 +57,11 @@ impl City {
         }
     }
 
-    pub fn bulldoze(&mut self, new_tile: &game::Tile) {
+    pub fn bulldoze(&mut self, new_tile: &tile::Tile) {
         for (mut tile, _) in self.map.selected() {
             match tile.tile_type {
-                game::Residential {population, ..} => self.population_pool += population,
-                game::Commercial {population, ..} | game::Industrial {population, ..} => self.employment_pool += population,
+                tile::Residential {population, ..} => self.population_pool += population,
+                tile::Commercial {population, ..} | tile::Industrial {population, ..} => self.employment_pool += population,
                 _ => {}
             }
 
@@ -69,9 +70,9 @@ impl City {
     }
 
     pub fn tiles_changed(&mut self) {
-        self.map.update_direction(game::Road);
+        self.map.update_direction(tile::Road);
         self.map.find_connected_regions(
-            vec![game::Road, game::RESIDENTIAL, game::COMMERCIAL, game::INDUSTRIAL],
+            vec![tile::Road, tile::RESIDENTIAL, tile::COMMERCIAL, tile::INDUSTRIAL],
             0
         );
     }
@@ -107,7 +108,7 @@ impl City {
             //population and employment distribution pass
             for &(ref mut tile, ref mut resources, _) in shuffled_tiles {
                 match &mut tile.tile_type {
-                    &game::Residential {ref mut population, max_pop_per_level, ..} => {
+                    &tile::Residential {ref mut population, max_pop_per_level, ..} => {
                         let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
 
                         let (pool, new_population) = distribute_pool(
@@ -123,7 +124,7 @@ impl City {
                         *population = new_population;
                         pop_total += *population;
                     },
-                    &game::Commercial {ref mut population, max_pop_per_level, ..} => {
+                    &tile::Commercial {ref mut population, max_pop_per_level, ..} => {
                         let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
 
                         if (1.0 - self.commercial_tax) * 0.15 > task_rng().gen() {
@@ -141,7 +142,7 @@ impl City {
                         stores += 1;
                         free_jobs += max_pop - *population;
                     },
-                    &game::Industrial {ref mut production, ref mut population, max_pop_per_level, ..} => {
+                    &tile::Industrial {ref mut production, ref mut population, max_pop_per_level, ..} => {
                         if *resources > 0 && *population * 0.01 > task_rng().gen() {
                             *production += 1;
                             *resources -= 1;
@@ -177,7 +178,7 @@ impl City {
         for &index in shuffled_indices.iter() {
             let (region, level) = {
                 let &(ref tile, _, _) = self.map.tile(index);
-                if !tile.tile_type.similar_to(&game::INDUSTRIAL) {
+                if !tile.tile_type.similar_to(&tile::INDUSTRIAL) {
                     continue;
                 }
                 (tile.regions[0], tile.variant as u32 + 1)
@@ -188,7 +189,7 @@ impl City {
             for &(ref mut tile2, _, _) in self.map.tiles() {
                 if tile2.regions[0] == region {
                     match tile2.tile_type {
-                        game::Industrial {ref mut production, ..} => {
+                        tile::Industrial {ref mut production, ..} => {
                             if *production > 0 {
                                 received_resources += 1;
                                 *production -= 1;
@@ -205,7 +206,7 @@ impl City {
 
             let &(ref mut tile, _, _) = self.map.tile(index);
             match tile.tile_type {
-                game::Industrial {ref mut stored_goods, production, ..} => *stored_goods += (received_resources + production) * level,
+                tile::Industrial {ref mut stored_goods, production, ..} => *stored_goods += (received_resources + production) * level,
                 _ => unreachable!()
             }
         }
@@ -215,7 +216,7 @@ impl City {
             let (region, level, population) = {
                 let &(ref tile, _, _) = self.map.tile(index);
                 let population = match tile.tile_type {
-                    game::Commercial {population, ..} => population,
+                    tile::Commercial {population, ..} => population,
                     _ => continue
                 };
                 (tile.regions[0], tile.variant as u32 + 1, population)
@@ -227,14 +228,14 @@ impl City {
             for &(ref mut tile2, _, _) in self.map.tiles() {
                 if tile2.regions[0] == region {
                     match tile2.tile_type {
-                        game::Industrial {ref mut stored_goods, ..} => {
+                        tile::Industrial {ref mut stored_goods, ..} => {
                             while *stored_goods > 0 && received_goods < level {
                                 *stored_goods -= 1;
                                 received_goods += 1;
                                 industrial_revenue += 100.0 * (1.0 - self.industrial_tax);
                             }
                         },
-                        game::Residential {population, ..} => {
+                        tile::Residential {population, ..} => {
                             max_customers += population;
                         }
                         _ => {}
