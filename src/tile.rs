@@ -2,6 +2,7 @@ use std::rand::{Rng, task_rng};
 use std::fmt;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use rsfml;
 use rsfml::graphics::{RenderWindow, IntRect};
@@ -109,7 +110,7 @@ pub enum TileType {
     Residential {
         pub population: f64,
         pub max_pop_per_level: uint,
-        pub employees: Vec<(f64, uint)>,
+        pub employees: HashMap<uint, f64>,
         max_levels: uint
     },
     Commercial {
@@ -132,7 +133,7 @@ impl TileType {
         Residential {
             population: 0.0,
             max_pop_per_level: max_pop_per_level,
-            employees: Vec::new(),
+            employees: HashMap::new(),
             max_levels: max_levels
         }
     }

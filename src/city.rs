@@ -1,5 +1,6 @@
 use std::rand::{Rng, task_rng};
 use std::iter::AdditiveIterator;
+use std::collections::HashMap;
 
 use map;
 use tile;
@@ -58,14 +59,37 @@ impl City {
     }
 
     pub fn bulldoze(&mut self, new_tile: &tile::Tile) {
-        for (mut tile, _) in self.map.selected() {
+        let mut removed_jobs = Vec::new();
+        let mut removed_workers = HashMap::new();
+
+        for (index, mut tile, _) in self.map.selected() {
             match tile.tile_type {
-                tile::Residential {population, ..} => self.population_pool += population,
-                tile::Commercial {population, ..} | tile::Industrial {population, ..} => {/*self.get_unemployed() += population*/},
+                tile::Residential {population, ref employees, ..} => {
+                    self.population_pool += population;
+                    for (&workplace, &people) in employees.iter() {
+                        removed_workers.insert_or_update_with(workplace, people, |_k, v| *v += people);
+                    }
+                },
+                tile::Commercial {..} | tile::Industrial {..} => removed_jobs.push(index),
                 _ => {}
             }
 
             *tile = new_tile.clone()
+        }
+
+        for (index, &(ref mut tile, _, _)) in self.map.mut_tiles().enumerate() {
+            match &mut tile.tile_type {
+                &tile::Residential {ref mut employees, ..} => for index in removed_jobs.iter() {
+                    employees.remove(index);
+                },
+                &tile::Commercial {ref mut population, ..} | &tile::Industrial {ref mut population, ..} => {
+                    match removed_workers.find(&index) {
+                        Some(&workers) => *population -= workers,
+                        None => {}
+                    }
+                },
+                _ => {}
+            }
         }
     }
 
@@ -114,7 +138,7 @@ impl City {
                     let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
 
                     //Unemployed losing their homes
-                    let employees = employees.iter().map(|&(employees, _)| employees).sum();
+                    let employees = employees.iter().map(|(_, &employees)| employees).sum();
                     let unemployed = *population - employees / self.prop_can_work;
                     let new_homeless = if 0.01f32 > task_rng().gen() { unemployed * 0.1 } else { 0.0 };
 
@@ -204,9 +228,16 @@ impl City {
         //manufacture pass
         for &index in shuffled_indices.iter() {
             let (region, level) = match self.map.tile(index) {
-                &(tile::Tile {tile_type: tile::Industrial {..}, ref regions, variant, ..}, _, _) => {
-                    (regions[0], variant as u32 + 1)
-                },
+                &(
+                    tile::Tile {
+                        tile_type: tile::Industrial {..},
+                        ref regions,
+                        variant,
+                        ..
+                    },
+                    _resources,
+                    _selection
+                ) => (regions[0], variant as u32 + 1),
                 _ => continue
             };
 
@@ -239,13 +270,18 @@ impl City {
 
         //goods distribution pass
         for &index in shuffled_indices.iter() {
-            let (region, level, population) = {
-                let &(ref tile, _, _) = self.map.tile(index);
-                let population = match tile.tile_type {
-                    tile::Commercial {population, ..} => population,
-                    _ => continue
-                };
-                (tile.regions[0], tile.variant as u32 + 1, population)
+            let (region, level, population) = match self.map.tile(index) {
+                &(
+                    tile::Tile {
+                        tile_type: tile::Commercial {population, ..},
+                        ref regions,
+                        variant,
+                        ..
+                    },
+                    _resources,
+                    _selection
+                ) => (regions[0], variant as u32 + 1, population),
+                _ => continue
             };
 
             let mut received_goods = 0;
@@ -345,7 +381,7 @@ fn get_all_unemployed(indices: &Vec<uint>, map: &map::Map, prop_can_work: f64) -
 fn get_unemployed(tile: &tile::Tile, prop_can_work: f64) -> Option<f64> {
     match tile.tile_type {
         tile::Residential {population, ref employees, ..} => {
-            let employees = employees.iter().map(|&(employees, _)| employees).sum();
+            let employees = employees.iter().map(|(_, &employees)| employees).sum();
             let unemployed = population * prop_can_work - employees;
             if unemployed > 0.0 {
                 Some(unemployed)

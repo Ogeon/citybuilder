@@ -1,6 +1,6 @@
 use std::io;
 use std::mem::swap;
-use std::iter::FilterMap;
+use std::iter::{FilterMap, Enumerate};
 use std::slice::{Items, MutItems};
 use std::rand::{Rng, task_rng};
 use std::cmp::{min, max};
@@ -381,9 +381,9 @@ impl Map {
         }
     }
 
-    pub fn selected(&mut self) -> FilterMap<&mut (Tile, uint, Selection), (&mut Tile, &mut uint), MutItems<(Tile, uint, Selection)>> {
-        self.tiles.mut_iter().filter_map(|&(ref mut tile, ref mut resources, selection)| match selection {
-            Selected => Some((tile, resources)),
+    pub fn selected(&mut self) -> FilterMap<(uint, &mut (Tile, uint, Selection)), (uint, &mut Tile, &mut uint), Enumerate<MutItems<(Tile, uint, Selection)>>> {
+        self.tiles.mut_iter().enumerate().filter_map(|(index, &(ref mut tile, ref mut resources, selection))| match selection {
+            Selected => Some((index, tile, resources)),
             _ => None
         })
     }
