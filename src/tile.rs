@@ -10,26 +10,6 @@ use rsfml::system::vector2::Vector2f;
 
 pub type TextureRc = Rc<RefCell<rsfml::graphics::Texture>>;
 
-pub static RESIDENTIAL: TileType = Residential {
-    population: 0.0,
-    max_pop_per_level: 0,
-    max_levels: 0
-};
-
-pub static COMMERCIAL: TileType = Commercial {
-    population: 0.0,
-    max_pop_per_level: 0,
-    max_levels: 0
-};
-
-pub static INDUSTRIAL: TileType = Industrial {
-    population: 0.0,
-    max_pop_per_level: 0,
-    max_levels: 0,
-    production: 0,
-    stored_goods: 0
-};
-
 #[deriving(Clone)]
 pub struct Animation {
     pub start_frame: uint,

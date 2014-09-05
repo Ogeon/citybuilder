@@ -73,7 +73,10 @@ impl City {
     pub fn tiles_changed(&mut self) {
         self.map.update_direction(tile::Road);
         self.map.find_connected_regions(
-            vec![tile::Road, tile::RESIDENTIAL, tile::COMMERCIAL, tile::INDUSTRIAL],
+            |tile| match tile {
+                &tile::Road | &tile::Residential {..} | &tile::Commercial {..} | &tile::Industrial {..} => true,
+                _ => false
+            },
             0
         );
     }
@@ -177,12 +180,11 @@ impl City {
 
         //manufacture pass
         for &index in shuffled_indices.iter() {
-            let (region, level) = {
-                let &(ref tile, _, _) = self.map.tile(index);
-                if !tile.tile_type.similar_to(&tile::INDUSTRIAL) {
-                    continue;
-                }
-                (tile.regions[0], tile.variant as u32 + 1)
+            let (region, level) = match self.map.tile(index) {
+                &(tile::Tile {tile_type: tile::Industrial {..}, ref regions, variant, ..}, _, _) => {
+                    (regions[0], variant as u32 + 1)
+                },
+                _ => continue
             };
 
             let mut received_resources = 0;
@@ -205,7 +207,7 @@ impl City {
                 }
             }
 
-            let &(ref mut tile, _, _) = self.map.tile(index);
+            let &(ref mut tile, _, _) = self.map.mut_tile(index);
             match tile.tile_type {
                 tile::Industrial {ref mut stored_goods, production, ..} => *stored_goods += (received_resources + production) * level,
                 _ => unreachable!()

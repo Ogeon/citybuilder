@@ -192,19 +192,13 @@ impl<'s> game::GameState for EditState<'s> {
 
                                 self.city.map.clear_selected();
                                 if current_tile.tile_type.similar_to(&tile::Grass) {
-                                    self.city.map.select(selection_start.clone(), selection_end.clone(), vec![tile::Water]);
+                                    self.city.map.select(selection_start.clone(), selection_end.clone(), |tile| tile.similar_to(&tile::Water));
                                 } else {
-                                    self.city.map.select(selection_start.clone(), selection_end.clone(),
-                                        vec![
-                                            current_tile.tile_type.clone(),
-                                            tile::Water,
-                                            tile::Forest,
-                                            tile::Road,
-                                            tile::RESIDENTIAL,
-                                            tile::COMMERCIAL,
-                                            tile::INDUSTRIAL
-                                        ]
-                                    );
+                                    self.city.map.select(selection_start.clone(), selection_end.clone(), |tile| match tile {
+                                        &tile::Water | &tile::Forest | &tile::Road | &tile::Residential {..} | &tile::Commercial {..} | &tile::Industrial{..} => true,
+                                        tile if current_tile.tile_type.similar_to(tile) => true,
+                                        _ => false
+                                    });
                                 }
 
                                 let total_cost = current_tile.cost as f64 * self.city.map.num_selected as f64;

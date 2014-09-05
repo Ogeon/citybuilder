@@ -263,7 +263,7 @@ impl Map {
         }
     }
 
-    fn depth_first_search(&mut self, whitelist: &Vec<TileType>, position: Vector2i, label: uint, region_type: uint) {
+    fn depth_first_search(&mut self, whitelisted: &mut |&TileType| -> bool, position: Vector2i, label: uint, region_type: uint) {
         if position.x < 0 || position.x >= self.width as i32 || position.y < 0 || position.y >= self.height as i32 {
             return
         }
@@ -273,7 +273,7 @@ impl Map {
             if tile.regions[region_type] != 0 {
                 return
             }
-            if whitelist.iter().find(|t| t.similar_to(&tile.tile_type)).is_some() {
+            if (*whitelisted)(&tile.tile_type) {
                 *tile.regions.get_mut(region_type) = label;
                 true
             } else {
@@ -283,14 +283,14 @@ impl Map {
 
         
         if found {
-            self.depth_first_search(whitelist, position.add(&Vector2i::new(-1,  0)), label, region_type);
-            self.depth_first_search(whitelist, position.add(&Vector2i::new( 0,  1)), label, region_type);
-            self.depth_first_search(whitelist, position.add(&Vector2i::new( 1,  0)), label, region_type);
-            self.depth_first_search(whitelist, position.add(&Vector2i::new( 0, -1)), label, region_type);
+            self.depth_first_search(whitelisted, position.add(&Vector2i::new(-1,  0)), label, region_type);
+            self.depth_first_search(whitelisted, position.add(&Vector2i::new( 0,  1)), label, region_type);
+            self.depth_first_search(whitelisted, position.add(&Vector2i::new( 1,  0)), label, region_type);
+            self.depth_first_search(whitelisted, position.add(&Vector2i::new( 0, -1)), label, region_type);
         }
     }
 
-    pub fn find_connected_regions(&mut self, whitelist: Vec<TileType>, region_type: uint) {
+    pub fn find_connected_regions(&mut self, whitelisted: |&TileType| -> bool, region_type: uint) {
         let mut regions = 1;
 
         for &(ref mut tile, _, _) in self.tiles.mut_iter() {
@@ -306,11 +306,11 @@ impl Map {
                         continue;
                     }
 
-                    whitelist.iter().find(|t| t.similar_to(&tile.tile_type)).is_some()
+                    whitelisted(&tile.tile_type)
                 };
 
                 if found {
-                    self.depth_first_search(&whitelist, Vector2i::new(x as i32, y as i32), regions, region_type);
+                    self.depth_first_search(&mut |tile| whitelisted(tile), Vector2i::new(x as i32, y as i32), regions, region_type);
                     regions += 1;
                 }
             }
@@ -327,7 +327,11 @@ impl Map {
         self.num_selected = 0;
     }
 
-    pub fn tile(&mut self, index: uint) -> &mut (Tile, uint, Selection) {
+    pub fn tile(&self, index: uint) -> &(Tile, uint, Selection) {
+        &self.tiles[index]
+    }
+
+    pub fn mut_tile(&mut self, index: uint) -> &mut (Tile, uint, Selection) {
         self.tiles.get_mut(index)
     }
 
@@ -343,7 +347,7 @@ impl Map {
         self.tiles.mut_iter()
     }
 
-    pub fn select(&mut self, start: Vector2i, end: Vector2i, blacklist: Vec<TileType>) {
+    pub fn select(&mut self, start: Vector2i, end: Vector2i, blacklisted: |&TileType| -> bool) {
         let mut start = start;
         let mut end = end;
 
@@ -364,7 +368,7 @@ impl Map {
         for y in range(start.y as uint, end.y as uint + 1) {
             for x in range(start.x as uint, end.x as uint + 1) {
                 let &(ref tile, _, ref mut selection) = self.tiles.get_mut(y * self.width + x);
-                if blacklist.iter().find(|t| t.similar_to(&tile.tile_type)).is_some() {
+                if blacklisted(&tile.tile_type) {
                     *selection = Invalid;
                 } else {
                     *selection = Selected;
