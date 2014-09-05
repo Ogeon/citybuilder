@@ -34,10 +34,10 @@ pub struct EditState<'s> {
     zoom_level: f32,
     current_tile: Option<tile::Tile>,
 
-    right_click_menu: gui::Gui<'s>,
-    selection_cost_text: gui::Gui<'s>,
-    info_text: gui::Gui<'s>,
-    info_bar: gui::Gui<'s>
+    right_click_menu: gui::Gui<'s, 'static, &'static str>,
+    selection_cost_text: gui::Gui<'s, 'static, ()>,
+    info_text: gui::Gui<'s, 'static, ()>,
+    info_bar: gui::Gui<'s, 'static, ()>
 }
 
 impl<'s> EditState<'s> {
@@ -71,31 +71,31 @@ impl<'s> EditState<'s> {
             Vector2f::new(196.0, 16.0), 2, false,
             game.stylesheets.find(&"button").unwrap().clone(),
             vec![
-                ("Inspect".to_string(), "inspect".to_string()),
-                (format!("Flatten ${}", game.tile_atlas.find(&"grass").expect("grass tile was not loaded").cost), "grass".to_string()),
-                (format!("Forest ${}", game.tile_atlas.find(&"forest").expect("forest tile was not loaded").cost), "forest".to_string()),
-                (format!("Residential Zone ${}", game.tile_atlas.find(&"residential").expect("residential tile was not loaded").cost), "residential".to_string()),
-                (format!("Commercial Zone ${}", game.tile_atlas.find(&"commercial").expect("commercial tile was not loaded").cost), "commercial".to_string()),
-                (format!("Industrial Zone ${}", game.tile_atlas.find(&"industrial").expect("industrial tile was not loaded").cost), "industrial".to_string()),
-                (format!("Road ${}", game.tile_atlas.find(&"road").expect("road tile was not loaded").cost), "road".to_string())
+                ("Inspect".to_string(), "inspect"),
+                (format!("Flatten ${}", game.tile_atlas.find(&"grass").expect("grass tile was not loaded").cost), "grass"),
+                (format!("Forest ${}", game.tile_atlas.find(&"forest").expect("forest tile was not loaded").cost), "forest"),
+                (format!("Residential Zone ${}", game.tile_atlas.find(&"residential").expect("residential tile was not loaded").cost), "residential"),
+                (format!("Commercial Zone ${}", game.tile_atlas.find(&"commercial").expect("commercial tile was not loaded").cost), "commercial"),
+                (format!("Industrial Zone ${}", game.tile_atlas.find(&"industrial").expect("industrial tile was not loaded").cost), "industrial"),
+                (format!("Road ${}", game.tile_atlas.find(&"road").expect("road tile was not loaded").cost), "road")
             ]
         );
 
         let selection_cost_text = gui::Gui::new(
             Vector2f::new(196.0, 16.0), 0, false,
             game.stylesheets.find(&"text").unwrap().clone(),
-            vec![("", "".to_string())]
+            vec![("", ())]
         );
 
         let mut info_bar = gui::Gui::new(
             Vector2f::new(game.window.get_size().x as f32 / 5.0, 16.0), 2, true,
             game.stylesheets.find(&"button").unwrap().clone(),
             vec![
-                ("time", "time".to_string()),
-                ("funds", "funds".to_string()),
-                ("population", "population".to_string()),
-                ("employment", "employment".to_string()),
-                ("current tile", "tile".to_string())
+                ("time", ()),
+                ("funds", ()),
+                ("population", ()),
+                ("employment", ()),
+                ("current tile", ())
             ]
         );
         let info_bar_pos = game.window.map_pixel_to_coords(&Vector2i::new(0, size.y as i32 - 16), &gui_view);
@@ -246,9 +246,9 @@ impl<'s> game::GameState for EditState<'s> {
                 },
                 MouseButtonPressed {button: mouse::MouseLeft, ..} => {
                     if self.right_click_menu.visible() {
-                        match self.right_click_menu.activate_at(&gui_pos).map(|s| s.to_string()) {
-                            Some(ref tile_name) if tile_name.as_slice() == "inspect" => self.current_tile = None,
-                            Some(tile_name) => self.current_tile = Some(game.tile_atlas.find_equiv(&tile_name).expect("unknown tile").clone()),
+                        match self.right_click_menu.activate_at(&gui_pos) {
+                            Some(&tile_name) if tile_name == "inspect" => self.current_tile = None,
+                            Some(tile_name) => self.current_tile = Some(game.tile_atlas.find_equiv(tile_name).expect("unknown tile").clone()),
                             _ => {}
                         }
                         self.right_click_menu.hide();
@@ -268,20 +268,20 @@ impl<'s> game::GameState for EditState<'s> {
                                     None => {
                                         match self.city.map.tile_at(&pos) {
                                             Some(&(ref tile, resources, _)) => {
-                                                let mut entries = vec![(tile.tile_type.to_string(), "".to_string()), (format!("Resources: {}", resources), "".to_string())];
+                                                let mut entries = vec![(tile.tile_type.to_string(), ()), (format!("Resources: {}", resources), ())];
 
                                                 match tile.tile_type {
                                                     tile::Residential {population, ..} => {
-                                                        entries.push((format!("Level: {}", tile.variant + 1), "".to_string()));
-                                                        entries.push((format!("Residents: {:.0}", population), "".to_string()));
+                                                        entries.push((format!("Level: {}", tile.variant + 1), ()));
+                                                        entries.push((format!("Residents: {:.0}", population), ()));
                                                     },
                                                     tile::Commercial {population, ..} => {
-                                                        entries.push((format!("Level: {}", tile.variant + 1), "".to_string()));
-                                                        entries.push((format!("Employees: {:.0}", population), "".to_string()));
+                                                        entries.push((format!("Level: {}", tile.variant + 1), ()));
+                                                        entries.push((format!("Employees: {:.0}", population), ()));
                                                     },
                                                     tile::Industrial {population, ..} => {
-                                                        entries.push((format!("Level: {}", tile.variant + 1), "".to_string()));
-                                                        entries.push((format!("Employees: {:.0}", population), "".to_string()));
+                                                        entries.push((format!("Level: {}", tile.variant + 1), ()));
+                                                        entries.push((format!("Employees: {:.0}", population), ()));
                                                     },
                                                     _ => {}
                                                 }

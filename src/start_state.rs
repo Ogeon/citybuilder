@@ -12,7 +12,7 @@ use gui;
 
 pub struct StartState<'s> {
     view: Rc<RefCell<rsfml::graphics::View>>,
-    menu: gui::Gui<'s>
+    menu: gui::Gui<'s, 'static, &'static str>
 }
 
 impl<'s> StartState<'s> {
@@ -28,7 +28,7 @@ impl<'s> StartState<'s> {
         let mut menu = gui::Gui::new(
             Vector2f::new(192.0, 32.0), 4, false,
             game.stylesheets.find(&"button").unwrap().clone(),
-            vec![("New Game", "new_game".into_string())]
+            vec![("New Game", "new_game")]
         );
 
         menu.transform.set_position(&center);
@@ -78,7 +78,7 @@ impl<'s> game::GameState for StartState<'s> {
                 },
                 MouseButtonReleased {button: mouse::MouseLeft, ..} => {
                     match self.menu.activate_at(&mouse_pos) {
-                        Some("new_game") => self.load_game(game),
+                        Some(&"new_game") => self.load_game(game),
                         _ => {}
                     }
                 },

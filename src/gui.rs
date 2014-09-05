@@ -19,13 +19,13 @@ pub struct GuiStyle {
     pub border_size: f32
 }
 
-pub struct GuiEntry<'s> {
+pub struct GuiEntry<'s, 't, T: 't> {
     pub shape: RectangleShape<'s>,
-    pub message: String,
+    pub message: T,
     pub text: Text
 }
 
-pub struct Gui<'s> {
+pub struct Gui<'s, 't, T: 't> {
     horizontal: bool,
     style: GuiStyle,
     dimensions: Vector2f,
@@ -33,11 +33,11 @@ pub struct Gui<'s> {
     visible: bool,
     rect: RectangleShape<'s>,
     pub transform: Transformable,
-    pub entries: Vec<GuiEntry<'s>>
+    pub entries: Vec<GuiEntry<'s, 't, T>>
 }
 
-impl<'s> Gui<'s> {
-    pub fn new<Txt: StrAllocating>(dimensions: Vector2f, padding: i32, horizontal: bool, style: GuiStyle, entries: Vec<(Txt, String)>) -> Gui<'s> {
+impl<'s, 't, T: 't> Gui<'s, 't, T> {
+    pub fn new<Txt: StrAllocating>(dimensions: Vector2f, padding: i32, horizontal: bool, style: GuiStyle, entries: Vec<(Txt, T)>) -> Gui<'s, 't, T> {
         let mut rect = RectangleShape::new().expect("unable to create new rectangle shape");
         rect.set_size(&dimensions);
         rect.set_fill_color(&style.body_color);
@@ -50,12 +50,12 @@ impl<'s> Gui<'s> {
             padding: padding,
             visible: false,
             transform: Transformable::new().unwrap(),
-            entries: entries.move_iter().map(|(text_str, message_str)| {
+            entries: entries.move_iter().map(|(text_str, message)| {
                 let mut text = Text::new_init(text_str.as_slice(), style.font.clone(), (dimensions.y - style.border_size - padding as f32) as uint).unwrap();
                 text.set_color(&style.text_color);
                 GuiEntry {
                     shape: rect.clone(),
-                    message: message_str,
+                    message: message,
                     text:text
                 }
             }).collect(),
@@ -98,13 +98,13 @@ impl<'s> Gui<'s> {
         }
     }
 
-    pub fn set_entries<Txt: StrAllocating>(&mut self, entries: Vec<(Txt, String)>) {
-        self.entries = entries.move_iter().map(|(text_str, message_str)| {
+    pub fn set_entries<Txt: StrAllocating>(&mut self, entries: Vec<(Txt, T)>) {
+        self.entries = entries.move_iter().map(|(text_str, message)| {
             let mut text = Text::new_init(text_str.as_slice(), self.style.font.clone(), (self.dimensions.y - self.style.border_size - self.padding as f32) as uint).unwrap();
             text.set_color(&self.style.text_color);
             GuiEntry {
                 shape: self.rect.clone(),
-                message: message_str,
+                message: message,
                 text:text
             }
         }).collect()
@@ -159,20 +159,20 @@ impl<'s> Gui<'s> {
         }
     }
 
-    pub fn activate(&self, index: uint) -> Option<&str> {
+    pub fn activate(&self, index: uint) -> Option<&T> {
         if index >= self.entries.len() {
             return None;
         }
 
-        Some(self.entries[index].message.as_slice())
+        Some(&self.entries[index].message)
     }
 
-    pub fn activate_at(&self, mouse_pos: &Vector2f) -> Option<&str> {
+    pub fn activate_at(&self, mouse_pos: &Vector2f) -> Option<&T> {
         self.get_entry(mouse_pos).and_then(|index| self.activate(index))
     }
 }
 
-impl<'s> Drawable for Gui<'s> {
+impl<'s, 't, T: 't> Drawable for Gui<'s, 't, T> {
     fn draw_in_render_window(&self, render_window: &mut RenderWindow) {
         if self.visible {
             for entry in self.entries.iter() {
