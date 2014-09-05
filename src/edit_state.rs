@@ -32,10 +32,11 @@ pub struct EditState<'s> {
     city: city::City,
     action_state: ActionState,
     zoom_level: f32,
-    current_tile: tile::Tile,
+    current_tile: Option<tile::Tile>,
 
     right_click_menu: gui::Gui<'s>,
     selection_cost_text: gui::Gui<'s>,
+    info_text: gui::Gui<'s>,
     info_bar: gui::Gui<'s>
 }
 
@@ -70,6 +71,7 @@ impl<'s> EditState<'s> {
             Vector2f::new(196.0, 16.0), 2, false,
             game.stylesheets.find(&"button").unwrap().clone(),
             vec![
+                ("Inspect".to_string(), "inspect".to_string()),
                 (format!("Flatten ${}", game.tile_atlas.find(&"grass").expect("grass tile was not loaded").cost), "grass".to_string()),
                 (format!("Forest ${}", game.tile_atlas.find(&"forest").expect("forest tile was not loaded").cost), "forest".to_string()),
                 (format!("Residential Zone ${}", game.tile_atlas.find(&"residential").expect("residential tile was not loaded").cost), "residential".to_string()),
@@ -100,17 +102,24 @@ impl<'s> EditState<'s> {
         info_bar.transform.set_position(&info_bar_pos);
         info_bar.show();
 
+        let info_text = gui::Gui::new::<String>(
+            Vector2f::new(196.0, 16.0), 2, false,
+            game.stylesheets.find(&"button").unwrap().clone(),
+            Vec::new()
+        );
+
         Some(EditState {
             game_view: Rc::new(RefCell::new(game_view)),
             gui_view: Rc::new(RefCell::new(gui_view)),
             city: city,
             action_state: Nothing,
             zoom_level: 1.0,
-            current_tile: game.tile_atlas.find(&"grass").unwrap().clone(),
+            current_tile: None,
 
             right_click_menu: right_click_menu,
             selection_cost_text: selection_cost_text,
-            info_bar: info_bar
+            info_bar: info_bar,
+            info_text: info_text
         })
     }
 }
@@ -128,6 +137,7 @@ impl<'s> game::GameState for EditState<'s> {
         game.window.draw(&self.info_bar);
         game.window.draw(&self.right_click_menu);
         game.window.draw(&self.selection_cost_text);
+        game.window.draw(&self.info_text);
     }
 
     fn update(&mut self, dt: f32) {
@@ -136,7 +146,8 @@ impl<'s> game::GameState for EditState<'s> {
         self.info_bar.set_entry_text(1, format!("${:.0}", self.city.funds));
         self.info_bar.set_entry_text(2, format!("{:.0} ({:.0})", self.city.population, self.city.get_homeless()));
         self.info_bar.set_entry_text(3, format!("{:.0} ({:.0})", self.city.employable, self.city.get_unemployed()));
-        self.info_bar.set_entry_text(4, self.current_tile.tile_type.to_string());
+        let action_name = self.current_tile.as_ref().map(|tile| tile.tile_type.to_string()).unwrap_or_else(|| "Inspect".to_string());
+        self.info_bar.set_entry_text(4, action_name);
     }
 
     fn handle_input(&mut self, game: &mut game::Game) {
@@ -173,36 +184,54 @@ impl<'s> game::GameState for EditState<'s> {
                         *anchor = Vector2f::new(x as f32, y as f32);
                     },
                     Selecting(ref selection_start, ref mut selection_end) => {
-                        let (width, _) = self.city.map.size();
-                        selection_end.x = (game_pos.y / game.tile_size as f32 + game_pos.x / (2.0 * game.tile_size as f32) - width as f32 * 0.5 - 0.5) as i32;
-                        selection_end.y = (game_pos.y / game.tile_size as f32 - game_pos.x / (2.0 * game.tile_size as f32) + width as f32 * 0.5 + 0.5) as i32;
+                        match self.current_tile {
+                            Some(ref current_tile) => {
+                                let (width, _) = self.city.map.size();
+                                selection_end.x = (game_pos.y / game.tile_size as f32 + game_pos.x / (2.0 * game.tile_size as f32) - width as f32 * 0.5 - 0.5) as i32;
+                                selection_end.y = (game_pos.y / game.tile_size as f32 - game_pos.x / (2.0 * game.tile_size as f32) + width as f32 * 0.5 + 0.5) as i32;
 
-                        self.city.map.clear_selected();
-                        if self.current_tile.tile_type.similar_to(&tile::Grass) {
-                            self.city.map.select(selection_start.clone(), selection_end.clone(), vec![tile::Water]);
-                        } else {
-                            self.city.map.select(selection_start.clone(), selection_end.clone(),
-                                vec![
-                                    self.current_tile.tile_type.clone(),
-                                    tile::Water,
-                                    tile::Forest,
-                                    tile::Road,
-                                    tile::RESIDENTIAL,
-                                    tile::COMMERCIAL,
-                                    tile::INDUSTRIAL
-                                ]
-                            );
-                        }
+                                self.city.map.clear_selected();
+                                if current_tile.tile_type.similar_to(&tile::Grass) {
+                                    self.city.map.select(selection_start.clone(), selection_end.clone(), vec![tile::Water]);
+                                } else {
+                                    self.city.map.select(selection_start.clone(), selection_end.clone(),
+                                        vec![
+                                            current_tile.tile_type.clone(),
+                                            tile::Water,
+                                            tile::Forest,
+                                            tile::Road,
+                                            tile::RESIDENTIAL,
+                                            tile::COMMERCIAL,
+                                            tile::INDUSTRIAL
+                                        ]
+                                    );
+                                }
 
-                        let total_cost = self.current_tile.cost as f64 * self.city.map.num_selected as f64;
-                        self.selection_cost_text.set_entry_text(0, format!("${}", total_cost));
-                        if self.city.funds < total_cost {
-                            self.selection_cost_text.highlight(Some(0));
-                        } else {
-                            self.selection_cost_text.highlight(None);
+                                let total_cost = current_tile.cost as f64 * self.city.map.num_selected as f64;
+                                self.selection_cost_text.set_entry_text(0, format!("${}", total_cost));
+                                if self.city.funds < total_cost {
+                                    self.selection_cost_text.highlight(Some(0));
+                                } else {
+                                    self.selection_cost_text.highlight(None);
+                                }
+
+                                let pos = Vector2f::new(
+                                    if gui_pos.x + 16.0 > game.window.get_size().x as f32 - self.selection_cost_text.get_size().x {
+                                        gui_pos.x - self.selection_cost_text.get_size().x - 16.0
+                                    } else {
+                                        gui_pos.x + 16.0
+                                    },
+                                    if gui_pos.y - 16.0 > game.window.get_size().y as f32 - self.selection_cost_text.get_size().y {
+                                        gui_pos.y - self.selection_cost_text.get_size().y
+                                    } else {
+                                        gui_pos.y - 16.0
+                                    }
+                                );
+                                self.selection_cost_text.transform.set_position(&pos);
+                                self.selection_cost_text.show();
+                            },
+                            None => {}
                         }
-                        self.selection_cost_text.transform.set_position(&gui_pos.add(&Vector2f::new(16.0, -16.0)));
-                        self.selection_cost_text.show();
                     },
                     _ => {}
                 },
@@ -212,12 +241,14 @@ impl<'s> game::GameState for EditState<'s> {
                         self.action_state = Panning(Vector2f::new(x as f32, y as f32));
                         self.right_click_menu.hide();
                         self.selection_cost_text.hide();
+                        self.info_text.hide();
                     },
                 },
                 MouseButtonPressed {button: mouse::MouseLeft, ..} => {
                     if self.right_click_menu.visible() {
                         match self.right_click_menu.activate_at(&gui_pos).map(|s| s.to_string()) {
-                            Some(tile_name) => self.current_tile = game.tile_atlas.find_equiv(&tile_name).expect("unknown tile").clone(),
+                            Some(ref tile_name) if tile_name.as_slice() == "inspect" => self.current_tile = None,
+                            Some(tile_name) => self.current_tile = Some(game.tile_atlas.find_equiv(&tile_name).expect("unknown tile").clone()),
                             _ => {}
                         }
                         self.right_click_menu.hide();
@@ -225,13 +256,61 @@ impl<'s> game::GameState for EditState<'s> {
                         match self.action_state {
                             Selecting(..) => {},
                             _ => {
-                                let pos = game.window.map_pixel_to_coords(&game.window.get_mouse_position(), self.game_view.borrow().deref());
                                 let (width, _) = self.city.map.size();
                                 let pos = Vector2i::new(
-                                    (pos.y / game.tile_size as f32 + pos.x / (2.0 * game.tile_size as f32) - width as f32 * 0.5 - 0.5) as i32,
-                                    (pos.y / game.tile_size as f32 - pos.x / (2.0 * game.tile_size as f32) + width as f32 * 0.5 + 0.5) as i32
+                                    (game_pos.y / game.tile_size as f32 + game_pos.x / (2.0 * game.tile_size as f32) - width as f32 * 0.5 - 0.5) as i32,
+                                    (game_pos.y / game.tile_size as f32 - game_pos.x / (2.0 * game.tile_size as f32) + width as f32 * 0.5 + 0.5) as i32
                                 );
-                                self.action_state = Selecting(pos.clone(), pos);
+                                match self.current_tile {
+                                    Some(_) => {
+                                        self.action_state = Selecting(pos.clone(), pos);
+                                    },
+                                    None => {
+                                        match self.city.map.tile_at(&pos) {
+                                            Some(&(ref tile, resources, _)) => {
+                                                let mut entries = vec![(tile.tile_type.to_string(), "".to_string()), (format!("Resources: {}", resources), "".to_string())];
+
+                                                match tile.tile_type {
+                                                    tile::Residential {population, ..} => {
+                                                        entries.push((format!("Level: {}", tile.variant + 1), "".to_string()));
+                                                        entries.push((format!("Residents: {:.0}", population), "".to_string()));
+                                                    },
+                                                    tile::Commercial {population, ..} => {
+                                                        entries.push((format!("Level: {}", tile.variant + 1), "".to_string()));
+                                                        entries.push((format!("Employees: {:.0}", population), "".to_string()));
+                                                    },
+                                                    tile::Industrial {population, ..} => {
+                                                        entries.push((format!("Level: {}", tile.variant + 1), "".to_string()));
+                                                        entries.push((format!("Employees: {:.0}", population), "".to_string()));
+                                                    },
+                                                    _ => {}
+                                                }
+
+                                                self.info_text.set_entries(entries);
+
+                                                let pos = Vector2f::new(
+                                                    if gui_pos.x + 16.0 > game.window.get_size().x as f32 - self.info_text.get_size().x {
+                                                        gui_pos.x - self.info_text.get_size().x - 16.0
+                                                    } else {
+                                                        gui_pos.x + 16.0
+                                                    },
+                                                    if gui_pos.y - 16.0 > game.window.get_size().y as f32 - self.info_text.get_size().y {
+                                                        gui_pos.y - self.info_text.get_size().y
+                                                    } else {
+                                                        gui_pos.y - 16.0
+                                                    }
+                                                );
+
+                                                self.info_text.transform.set_position(&pos);
+
+                                                self.info_text.show();
+                                            },
+                                            None => {
+                                                self.info_text.hide();
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -243,36 +322,45 @@ impl<'s> game::GameState for EditState<'s> {
                         self.selection_cost_text.hide();
                     },
                     _ => {
-                        let pos = Vector2f::new(
-                            if gui_pos.x > game.window.get_size().x as f32 - self.right_click_menu.get_size().x {
-                                gui_pos.x - self.right_click_menu.get_size().x
-                            } else {
-                                gui_pos.x
-                            },
-                            if gui_pos.y > game.window.get_size().y as f32 - self.right_click_menu.get_size().y {
-                                gui_pos.y - self.right_click_menu.get_size().y
-                            } else {
-                                gui_pos.y
-                            }
-                        );
+                        if !self.info_text.visible() {
+                            let pos = Vector2f::new(
+                                if gui_pos.x > game.window.get_size().x as f32 - self.right_click_menu.get_size().x {
+                                    gui_pos.x - self.right_click_menu.get_size().x
+                                } else {
+                                    gui_pos.x
+                                },
+                                if gui_pos.y > game.window.get_size().y as f32 - self.right_click_menu.get_size().y {
+                                    gui_pos.y - self.right_click_menu.get_size().y
+                                } else {
+                                    gui_pos.y
+                                }
+                            );
 
-                        self.right_click_menu.transform.set_position(&pos);
-                        self.right_click_menu.show();
+                            self.right_click_menu.transform.set_position(&pos);
+                            self.right_click_menu.show();
+                        } else {
+                            self.info_text.hide();
+                        }
                     }
                 },
                 MouseButtonReleased {button: mouse::MouseMiddle, ..} => self.action_state = Nothing,
                 MouseButtonReleased {button: mouse::MouseLeft, ..} => match self.action_state {
                     Selecting(..) => {
-                        let total_cost = self.current_tile.cost as f64 * self.city.map.num_selected as f64;
-                        if self.city.funds >= total_cost {
-                            self.city.bulldoze(&self.current_tile);
-                            self.city.funds -= total_cost;
-                            self.city.tiles_changed();
-                        }
+                        match self.current_tile {
+                            Some(ref current_tile) => {
+                                let total_cost = current_tile.cost as f64 * self.city.map.num_selected as f64;
+                                if self.city.funds >= total_cost {
+                                    self.city.bulldoze(current_tile);
+                                    self.city.funds -= total_cost;
+                                    self.city.tiles_changed();
+                                }
 
-                        self.action_state = Nothing;
-                        self.city.map.clear_selected();
-                        self.selection_cost_text.hide();
+                                self.action_state = Nothing;
+                                self.city.map.clear_selected();
+                                self.selection_cost_text.hide();
+                            },
+                            None => {}
+                        }
                     },
                     _ => {}
                 },

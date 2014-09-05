@@ -331,6 +331,14 @@ impl Map {
         self.tiles.get_mut(index)
     }
 
+    pub fn tile_at(&mut self, pos: &Vector2i) -> Option<&(Tile, uint, Selection)> {
+        if pos.x >= 0 && pos.x < self.width as i32 && pos.y >= 0 && pos.y < self.height as i32 {
+            Some(&self.tiles[pos.x as uint + pos.y as uint * self.width])
+        } else {
+            None
+        }
+    }
+
     pub fn tiles(&mut self) -> MutItems<(Tile, uint, Selection)> {
         self.tiles.mut_iter()
     }

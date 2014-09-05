@@ -31,6 +31,7 @@ pub struct Gui<'s> {
     dimensions: Vector2f,
     padding: i32,
     visible: bool,
+    rect: RectangleShape<'s>,
     pub transform: Transformable,
     pub entries: Vec<GuiEntry<'s>>
 }
@@ -58,6 +59,7 @@ impl<'s> Gui<'s> {
                     text:text
                 }
             }).collect(),
+            rect: rect,
             style: style
         }
     }
@@ -96,12 +98,25 @@ impl<'s> Gui<'s> {
         }
     }
 
+    pub fn set_entries<Txt: StrAllocating>(&mut self, entries: Vec<(Txt, String)>) {
+        self.entries = entries.move_iter().map(|(text_str, message_str)| {
+            let mut text = Text::new_init(text_str.as_slice(), self.style.font.clone(), (self.dimensions.y - self.style.border_size - self.padding as f32) as uint).unwrap();
+            text.set_color(&self.style.text_color);
+            GuiEntry {
+                shape: self.rect.clone(),
+                message: message_str,
+                text:text
+            }
+        }).collect()
+    }
+
     pub fn set_dimensions(&mut self, dimensions: &Vector2f) {
         for entry in self.entries.mut_iter() {
             entry.shape.set_size(dimensions);
             entry.text.set_character_size((dimensions.y - self.style.border_size - self.padding as f32) as uint)
         }
 
+        self.rect.set_size(dimensions);
         self.dimensions = dimensions.clone();
     }
 
