@@ -16,6 +16,7 @@ use rsfml::system::vector2::{ToVec, Vector2f, Vector2i};
 
 use game;
 use tile;
+use map;
 use city;
 use gui;
 
@@ -48,7 +49,7 @@ impl<'s> EditState<'s> {
             None => return None
         };
 
-        let map = game::Map::new_generated(game.tile_size, &game.tile_atlas);
+        let map = map::Map::new_generated(game.tile_size, &game.tile_atlas);
 
         let (width, height) = map.size();
 

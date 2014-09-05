@@ -4,6 +4,7 @@ extern crate rsfml;
 
 mod game;
 mod tile;
+mod map;
 mod start_state;
 mod edit_state;
 mod gui;

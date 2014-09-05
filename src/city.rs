@@ -1,6 +1,7 @@
-use game;
-use tile;
 use std::rand::{Rng, task_rng};
+
+use map;
+use tile;
 
 pub struct City {
     current_time: f32,
@@ -13,7 +14,7 @@ pub struct City {
     birth_rate: f64,
     death_rate: f64,
 
-    pub map: game::Map,
+    pub map: map::Map,
 
     pub population: f64,
     pub employable: f64,
@@ -29,7 +30,7 @@ pub struct City {
 }
 
 impl City {
-    pub fn new(map: game::Map) -> City {
+    pub fn new(map: map::Map) -> City {
         City {
             current_time: 0.0,
             time_per_day: 1.0,
