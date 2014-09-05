@@ -109,6 +109,7 @@ pub enum TileType {
     Residential {
         pub population: f64,
         pub max_pop_per_level: uint,
+        pub employees: Vec<(f64, uint)>,
         max_levels: uint
     },
     Commercial {
@@ -131,6 +132,7 @@ impl TileType {
         Residential {
             population: 0.0,
             max_pop_per_level: max_pop_per_level,
+            employees: Vec::new(),
             max_levels: max_levels
         }
     }
@@ -223,7 +225,7 @@ impl Tile {
 
     pub fn update(&mut self) {
         match self.tile_type {
-            Residential {population, max_pop_per_level, max_levels} |
+            Residential {population, max_pop_per_level, max_levels, ..} |
             Commercial {population, max_pop_per_level, max_levels} |
             Industrial {population, max_pop_per_level, max_levels, ..}
             => if population as uint == max_pop_per_level * (self.variant + 1) && self.variant < max_levels {

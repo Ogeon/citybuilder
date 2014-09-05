@@ -1,8 +1,7 @@
 use std::io;
-use std::mem::{swap, transmute};
-use std::iter;
+use std::mem::swap;
 use std::iter::FilterMap;
-use std::slice::MutItems;
+use std::slice::{Items, MutItems};
 use std::rand::{Rng, task_rng};
 use std::cmp::{min, max};
 use std::collections::HashMap;
@@ -343,7 +342,11 @@ impl Map {
         }
     }
 
-    pub fn tiles(&mut self) -> MutItems<(Tile, uint, Selection)> {
+    pub fn tiles(&self) -> Items<(Tile, uint, Selection)> {
+        self.tiles.iter()
+    }
+
+    pub fn mut_tiles(&mut self) -> MutItems<(Tile, uint, Selection)> {
         self.tiles.mut_iter()
     }
 
@@ -385,44 +388,9 @@ impl Map {
         })
     }
 
-    pub fn shuffled(&mut self) -> ShuffledItems<(Tile, uint, Selection)> {
-        ShuffledItems::new(&mut self.tiles)
-    }
-}
-
-struct ShuffledItems<'a, T: 'a> {
-    items: &'a mut Vec<T>,
-    indices: Vec<uint>,
-    counter: uint
-}
-
-impl<'a, T: 'a> ShuffledItems<'a, T> {
-    pub fn new(items: &'a mut Vec<T>) -> ShuffledItems<'a, T> {
-        let mut indices: Vec<uint> = range(0, items.len()).collect();
+    pub fn shuffled_indices(&mut self) -> Vec<uint> {
+        let mut indices: Vec<uint> = range(0, self.tiles.len()).collect();
         task_rng().shuffle(indices.as_mut_slice());
-        ShuffledItems {
-            items: items,
-            indices: indices,
-            counter: 0
-        }
-    }
-
-    pub fn into_indices(self) -> Vec<uint> {
-        self.indices
-    }
-}
-
-impl<'a, T: 'a> iter::Iterator<&'a mut T> for ShuffledItems<'a, T> {
-    fn next(&mut self) -> Option<&'a mut T> {
-        if self.counter < self.items.len() {
-            let index = self.indices[self.counter];
-            self.counter += 1;
-            unsafe {
-                //less nice...
-                Some(transmute(self.items.get_mut(index)))
-            }
-        } else {
-            None
-        }
+        indices
     }
 }

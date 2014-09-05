@@ -1,4 +1,5 @@
 use std::rand::{Rng, task_rng};
+use std::iter::AdditiveIterator;
 
 use map;
 use tile;
@@ -8,7 +9,6 @@ pub struct City {
     time_per_day: f32,
 
     population_pool: f64,
-    employment_pool: f64,
     prop_can_work: f64,
 
     birth_rate: f64,
@@ -36,7 +36,6 @@ impl City {
             time_per_day: 1.0,
 
             population_pool: 0.0,
-            employment_pool: 0.0,
             prop_can_work: 0.5,
             
             birth_rate: 0.00055,
@@ -62,7 +61,7 @@ impl City {
         for (mut tile, _) in self.map.selected() {
             match tile.tile_type {
                 tile::Residential {population, ..} => self.population_pool += population,
-                tile::Commercial {population, ..} | tile::Industrial {population, ..} => self.employment_pool += population,
+                tile::Commercial {population, ..} | tile::Industrial {population, ..} => {/*self.get_unemployed() += population*/},
                 _ => {}
             }
 
@@ -105,78 +104,102 @@ impl City {
             self.earnings = 0.0;
         }
 
-        
-        let shuffled_indices = {
-            let mut shuffled_tiles = self.map.shuffled();
+        let shuffled_indices = self.map.shuffled_indices();
 
-            //population and employment distribution pass
-            for &(ref mut tile, ref mut resources, _) in shuffled_tiles {
-                match &mut tile.tile_type {
-                    &tile::Residential {ref mut population, max_pop_per_level, ..} => {
-                        let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
+        //population distribution pass
+        for &index in shuffled_indices.iter() {
+            let &(ref mut tile, _, _) = self.map.mut_tile(index);
+            match &mut tile.tile_type {
+                &tile::Residential {ref mut population, max_pop_per_level, ref employees, ..} => {
+                    let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
 
-                        let (pool, new_population) = distribute_pool(
-                            self.population_pool,
-                            *population,
-                            max_pop,
-                            self.birth_rate - self.death_rate
-                        );
+                    //Unemployed losing their homes
+                    let employees = employees.iter().map(|&(employees, _)| employees).sum();
+                    let unemployed = *population - employees / self.prop_can_work;
+                    let new_homeless = if 0.01f32 > task_rng().gen() { unemployed * 0.1 } else { 0.0 };
 
-                        empty_homes += max_pop - new_population;
+                    let (pool, new_population) = distribute_pool(
+                        self.population_pool + new_homeless,
+                        *population - new_homeless,
+                        max_pop,
+                        self.birth_rate - self.death_rate
+                    );
 
-                        self.population_pool = pool;
-                        *population = new_population;
-                        pop_total += *population;
-                    },
-                    &tile::Commercial {ref mut population, max_pop_per_level, ..} => {
-                        let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
+                    empty_homes += max_pop - new_population;
 
-                        if (1.0 - self.commercial_tax) * 0.15 > task_rng().gen() {
+                    self.population_pool = pool;
+                    *population = new_population;
+                    pop_total += *population;
+                },
+                _ => {}
+            }
+        }
+
+        let mut unemployed = get_all_unemployed(&shuffled_indices, &self.map, self.prop_can_work);
+        let mut num_unemployed = unemployed.iter().map(|&(people, _)| people).sum();
+
+        //employment distribution pass
+        for &index in shuffled_indices.iter() {
+            let &(ref mut tile, ref mut resources, _) = self.map.mut_tile(index);
+            match &mut tile.tile_type {
+                &tile::Commercial {ref mut population, max_pop_per_level, ..} => {
+                    let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
+
+                    for &(ref mut people, home_index) in unemployed.mut_iter() {
+                        if (*people / num_unemployed) * (1.0 - self.commercial_tax) * 0.15 > task_rng().gen() {
                             let (pool, new_population) = distribute_pool(
-                                self.employment_pool,
+                                *people,
                                 *population,
                                 max_pop,
                                 0.0
                             );
 
-                            self.employment_pool = pool;
+                            //TODO: add new employees in residence
+
+                            num_unemployed -= *people - pool;
+                            *people = pool;
                             *population = new_population;
                         }
+                    }
 
-                        stores += 1;
-                        free_jobs += max_pop - *population;
-                    },
-                    &tile::Industrial {ref mut production, ref mut population, max_pop_per_level, ..} => {
-                        if *resources > 0 && *population * 0.01 > task_rng().gen() {
-                            *production += 1;
-                            *resources -= 1;
-                        }
+                    stores += 1;
+                    free_jobs += max_pop - *population;
+                },
+                &tile::Industrial {ref mut production, ref mut population, max_pop_per_level, ..} => {
+                    if *resources > 0 && *population * 0.01 > task_rng().gen() {
+                        *production += 1;
+                        *resources -= 1;
+                    }
 
-                        let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
+                    let max_pop = (max_pop_per_level * (tile.variant + 1)) as f64;
 
-                        if (1.0 - self.industrial_tax) * 0.15 > task_rng().gen() {
+                    for &(ref mut people, home_index) in unemployed.mut_iter() {
+                        if (*people / num_unemployed) * (1.0 - self.industrial_tax) * 0.15 > task_rng().gen() {
                             let (pool, new_population) = distribute_pool(
-                                self.employment_pool,
+                                *people,
                                 *population,
                                 max_pop,
                                 0.0
                             );
 
-                            self.employment_pool = pool;
+                            //TODO: add new employees in residence
+
+                            num_unemployed -= *people - pool;
+                            *people = pool;
                             *population = new_population;
                         }
+                    }
 
-                        industries += 1;
-                        free_jobs += max_pop - *population;
-                    },
-                    _ => {}
-                }
-
-                tile.update();
+                    industries += 1;
+                    free_jobs += max_pop - *population;
+                },
+                _ => {}
             }
 
-            shuffled_tiles.into_indices()
-        };
+            tile.update();
+        }
+
+        assert!(num_unemployed >= 0.0);
 
         //manufacture pass
         for &index in shuffled_indices.iter() {
@@ -189,7 +212,7 @@ impl City {
 
             let mut received_resources = 0;
             
-            for &(ref mut tile2, _, _) in self.map.tiles() {
+            for &(ref mut tile2, _, _) in self.map.mut_tiles() {
                 if tile2.regions[0] == region {
                     match tile2.tile_type {
                         tile::Industrial {ref mut production, ..} => {
@@ -228,7 +251,7 @@ impl City {
             let mut received_goods = 0;
             let mut max_customers = 0.0;
 
-            for &(ref mut tile2, _, _) in self.map.tiles() {
+            for &(ref mut tile2, _, _) in self.map.mut_tiles() {
                 if tile2.regions[0] == region {
                     match tile2.tile_type {
                         tile::Industrial {ref mut stored_goods, ..} => {
@@ -256,8 +279,8 @@ impl City {
 
         self.population_pool += self.population_pool * (self.birth_rate - self.death_rate);
 
-        let imigrants = 1.0 + (empty_homes - self.population_pool).max(0.0) * (free_jobs - self.employment_pool).max(0.0) * (1.0 - self.residential_tax) * 0.0001;
-        let prob = (empty_homes - self.population_pool).max(0.0) * (free_jobs - self.employment_pool).max(0.0) * (1.0 - self.residential_tax) * 0.00001;
+        let imigrants = 1.0 + (empty_homes - self.population_pool).max(0.0) * (free_jobs - num_unemployed).max(0.0) * (1.0 - self.residential_tax) * 0.0001;
+        let prob = (empty_homes - self.population_pool).max(0.0) * (free_jobs - num_unemployed).max(0.0) * (1.0 - self.residential_tax) * 0.00001;
         
         //people moving to the city
         if stores > 0 && industries > 0 && prob > task_rng().gen() {
@@ -265,19 +288,14 @@ impl City {
         }
 
         //people moving from the city
-        if (self.population_pool > empty_homes || self.employment_pool > free_jobs) && (self.population_pool + self.employment_pool) * 0.01 > task_rng().gen() {
-            self.population_pool -= (self.population_pool + self.employment_pool) * 0.05 + 1.0;
+        if (self.population_pool > empty_homes || num_unemployed > free_jobs) && (self.population_pool + num_unemployed) * 0.01 > task_rng().gen() {
+            self.population_pool -= (self.population_pool + num_unemployed) * 0.05 + 1.0;
         }
 
         pop_total += self.population_pool;
 
         let new_workers = (pop_total - self.population).abs() * self.prop_can_work;
-        self.employment_pool += new_workers;
         self.employable += new_workers;
-
-        if self.employment_pool < 0.0 {
-            self.employment_pool = 0.0;
-        }
         
         if self.employable < 0.0 {
             self.employable = 0.0;
@@ -295,7 +313,7 @@ impl City {
     }
 
     pub fn get_unemployed(&self) -> f64  {
-        self.employment_pool
+        self.map.tiles().filter_map(|&(ref tile, _, _)| get_unemployed(tile, self.prop_can_work)).sum()
     }
 }
 
@@ -314,5 +332,27 @@ fn distribute_pool(pool: f64, population: f64, max_pop: f64, change_rate: f64) -
         (pool + (population - max_pop), max_pop)
     } else {
         (pool, population)
+    }
+}
+
+fn get_all_unemployed(indices: &Vec<uint>, map: &map::Map, prop_can_work: f64) -> Vec<(f64, uint)> {
+    indices.iter().filter_map(|&index| {
+        let &(ref tile, _, _) = map.tile(index);
+        get_unemployed(tile, prop_can_work).map(|people| (people, index))
+    }).collect()
+}
+
+fn get_unemployed(tile: &tile::Tile, prop_can_work: f64) -> Option<f64> {
+    match tile.tile_type {
+        tile::Residential {population, ref employees, ..} => {
+            let employees = employees.iter().map(|&(employees, _)| employees).sum();
+            let unemployed = population * prop_can_work - employees;
+            if unemployed > 0.0 {
+                Some(unemployed)
+            } else {
+                None
+            }
+        },
+        _ => None
     }
 }
